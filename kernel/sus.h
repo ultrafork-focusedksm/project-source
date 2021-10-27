@@ -23,6 +23,6 @@ struct sus_ctx
     struct fksm_ctx ctx;
 };
 
-#define SUS_MOD_UFRK_MERGE _IOW(SUS_MOD_IOCTL_MAGIC, 1, void*)
+#define SUS_MOD_FKSM_MERGE _IOW(SUS_MOD_IOCTL_MAGIC, 1, void*)
 
 #endif
