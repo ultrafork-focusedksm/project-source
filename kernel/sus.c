@@ -50,7 +50,7 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
         {
             ret = -EACCES;
         }
-        else if (SUS_MOD_FKSM_MERGE == ctx.mode)
+        else if (SUS_MODE_FKSM == ctx.mode)
         {
             ret = sus_mod_merge(ctx.fksm.pid1, ctx.fksm.pid2);
         }
