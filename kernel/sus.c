@@ -1,4 +1,5 @@
 #include "sus.h"
+#include "focused_ksm.h"
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/errno.h>
@@ -19,7 +20,6 @@ static struct class* cl;
 static int sus_mod_open(struct inode*, struct file*);
 static int sus_mod_close(struct inode*, struct file*);
 static long sus_mod_ioctl(struct file*, unsigned int, unsigned long);
-static int sus_mod_merge(unsigned long pid1, unsigned long pid2);
 
 static struct file_operations sus_ioctl_fops = {.owner = THIS_MODULE,
                                                 .open = sus_mod_open,
@@ -37,12 +37,6 @@ static int sus_mod_close(struct inode* i, struct file* f)
 {
     printk(KERN_INFO SUS_MOD_LOG "close\n");
     return 0;
-}
-
-static struct task_struct* find_task_from_pid(unsigned long pid)
-{
-    struct pid* pid_struct = find_get_pid(pid);
-    return get_pid_task(pid_struct, PIDTYPE_PID);
 }
 
 static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
@@ -67,10 +61,6 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
     return ret;
 }
 
-static int sus_mod_merge(unsigned long pid1, unsigned long pid2)
-{
-    return -EINVAL;
-}
 static int __init sus_mod_init(void)
 {
     struct device* dev_ret;
