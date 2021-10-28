@@ -17,10 +17,20 @@ struct fksm_ctx
     unsigned long pid2;
 };
 
+struct ufrk_ctx
+{
+    unsigned long pid;
+    unsigned char flags;
+};
+
 struct sus_ctx
 {
     unsigned char mode;
-    struct fksm_ctx ctx;
+    union
+    {
+        struct fksm_ctx fksm;
+        struct ufrk_ctx ufrk;
+    };
 };
 
 #define SUS_MOD_FKSM_MERGE _IOW(SUS_MOD_IOCTL_MAGIC, 1, void*)

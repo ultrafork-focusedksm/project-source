@@ -51,14 +51,14 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
     int ret = -EINVAL;
     switch (cmd)
     {
-    case SUS_MOD_UFRK_MERGE:
+    case SUS_MOD_FKSM_MERGE:
         if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
         {
             ret = -EACCES;
         }
-        else
+        else if (SUS_MOD_FKSM_MERGE == ctx.mode)
         {
-            ret = sus_mod_merge(ctx.ctx.pid1, ctx.ctx.pid2);
+            ret = sus_mod_merge(ctx.fksm.pid1, ctx.fksm.pid2);
         }
         break;
     default:

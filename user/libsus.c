@@ -15,9 +15,9 @@ int sus_fksm_merge(int fd, pid_t pid1, pid_t pid2)
         return EINVAL;
     }
     struct sus_ctx ctx;
-    ctx.ctx.pid1 = pid1;
-    ctx.ctx.pid2 = pid2;
     ctx.mode = SUS_MODE_FKSM;
+    ctx.fksm.pid1 = pid1;
+    ctx.fksm.pid2 = pid2;
     if (ioctl(fd, SUS_MOD_FKSM_MERGE, &ctx) == -1)
     {
         return -errno;
