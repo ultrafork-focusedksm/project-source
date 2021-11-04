@@ -9,3 +9,5 @@
 compile_commands.json
 tags
 *.dwo
+
+.focused_ksm.o.d
