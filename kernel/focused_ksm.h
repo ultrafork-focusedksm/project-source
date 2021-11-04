@@ -11,6 +11,7 @@ struct metadata_collection
 {
     u8 checksum[SHA3_512_LEN];
     struct page* page;
+    struct list_head list;
 };
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2);
