@@ -2,6 +2,8 @@ KO := sus_mod
 KERNEL_VERSION := $(shell uname -r)
 PWD := $(shell pwd)
 
+ccflags-y := -Wall
+
 obj-m += sus.o
 sus-y := sus_main.o
 sus-y += focused_ksm.o
