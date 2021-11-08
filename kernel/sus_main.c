@@ -1,5 +1,6 @@
 #include "sus.h"
 #include "focused_ksm.h"
+#include "ultrafork.h"
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/errno.h>
@@ -55,6 +56,15 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
             ret = sus_mod_merge(ctx.fksm.pid1, ctx.fksm.pid2);
         }
         break;
+    case SUS_MOD_UFRK_FORK:
+        if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
+        {
+            ret = -EACCES;
+        }
+        else if (SUS_MODE_UFRK == ctx.mode)
+        {
+            ret = sus_mod_fork(ctx.ufrk.pid, ctx.ufrk.flags);
+        }
     default:
         break;
     }

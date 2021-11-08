@@ -3,7 +3,9 @@ KERNEL_VERSION := $(shell uname -r)
 PWD := $(shell pwd)
 
 obj-m += sus.o
-sus-objs := focused_ksm.o
+sus-y := sus_main.o
+sus-y += focused_ksm.o
+sus-y += ultrafork.o
 
 .PHONY: build install load clean
 
