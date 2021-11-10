@@ -8,9 +8,9 @@ typedef struct list_head* sus_metadata_collection_t;
 
 struct metadata_collection
 {
-    u8 checksum[SHA3_512_DIGEST_SIZE];
     struct page* page;
     struct list_head list;
+    u8 checksum[SHA3_512_DIGEST_SIZE];
 };
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2);
