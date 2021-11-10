@@ -81,7 +81,16 @@ static void resume_task(struct task_struct* task)
 
 struct recursive_task_walker
 {
-    int (*task_handler)(struct task_struct*, void*)
+    /**
+     * Define a visitor for each task.
+     *
+     * @param task The task being visited
+     * @param data Private data passed into the walker for use in these
+     * functions.
+     * @return RECURSIVE_TASK_WALKER_CONTINUE to keep traversing,
+     * RECURSIVE_TASK_WALKER_STOP to stop traversing.
+     */
+    int (*task_handler)(struct task_struct* task, void* data);
 };
 
 static int recursive_task_traverse(struct task_struct* task, void* data);
@@ -90,28 +99,33 @@ static struct recursive_task_walker rtask_logger = {
     .task_handler = recursive_task_traverse,
 };
 
-static struct task_struct* find_task_from_pid(unsigned long pid)
-{
-    struct pid* pid_struct = find_get_pid(pid);
-    return get_pid_task(pid_struct, PIDTYPE_PID);
-}
-
+/**
+ * Recursive task walker. Given a task, visit it, and all its decendants.
+ * @param task The parent task structure
+ * @param data Private data pointer for the handlers to use.
+ * @param walker The walker context
+ */
 static void walk_task(struct task_struct* task, void* data,
                       struct recursive_task_walker* walker)
 {
     struct list_head* list;
 
-    walker->task_handler(task, data, walker);
-    list_for_each(list, &task->children)
+    int status = walker->task_handler(task, data);
+    if (status == RECURSIVE_TASK_WALKER_CONTINUE)
     {
-        struct task_struct* child =
-            list_entry(list, struct task_struct, sibling);
-        int status = walker->task_handler(child, data);
-        if (status == RECURSIVE_TASK_WALKER_STOP)
+        list_for_each(list, &task->children)
         {
-            return;
+            struct task_struct* child =
+                list_entry(list, struct task_struct, sibling);
+
+            status = walker->task_handler(child, data);
+            if (status == RECURSIVE_TASK_WALKER_STOP)
+            {
+                return;
+            }
+
+            walk_task(child, data, walker);
         }
-        walk_task(child, data, walker);
     }
 }
 
@@ -121,9 +135,27 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
+static void suspend_task(struct task_struct* task)
+{
+    // TODO: Does this actually work, its a bit hacky
+    // TODO: Block CONT signals until we are ready to resume.
+    kill_pid(task_pid(task), SIGSTOP, 1);
+}
+
+static void resume_task(struct task_struct* task)
+{
+    // TODO: see nots on suspend_task
+    kill_pid(task_pid(task), SIGCONT, 1);
+}
+
+static struct task_struct* find_task_from_pid(unsigned long pid)
+{
+    struct pid* pid_struct = find_get_pid(pid);
+    return get_pid_task(pid_struct, PIDTYPE_PID);
+}
+
 int sus_mod_fork(unsigned long pid, unsigned char flags)
 {
-    struct list_head* list;
     struct task_struct* parent;
 
     if (pid < 1)
@@ -138,6 +170,6 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
-    walk_task(parent, NULL, rtask_logger);
+    walk_task(parent, NULL, &rtask_logger);
     return 0;
 }
