@@ -24,6 +24,9 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     struct page* current_page = pte_page(*pte); // page from page table entry
 
     // TODO: check page flags
+    // TODO: tag to identify which part of union. check documentation
+    // TODO: restructure metadata_collection to have an internal struct that contains page*, pte_t*, and mm_struct*. checksum still part of the node
+    // probably a macro to query page type. sched.h or mm_types
     if (true)
     {
         struct crypto_shash* tfm; // hash transform object
@@ -41,6 +44,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         new_meta->page = current_page;
 
         void* addr = kmap_atomic(page); // address to page
+        //kmap atomic critical section, accessing page transparently? Need to verify
         //ignore huge pages
         crypto_shash_digest(desc, addr, PAGE_SIZE, new_meta->checksum);
         kunmap_atomic(addr);
