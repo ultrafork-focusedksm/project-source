@@ -25,6 +25,7 @@ struct recursive_task_walker
 };
 
 static int recursive_task_traverse(struct task_struct* task, void* data);
+static void suspend_task(struct task_struct* task);
 
 static struct recursive_task_walker rtask_logger = {
     .task_handler = recursive_task_traverse,
@@ -48,16 +49,10 @@ static void walk_task(struct task_struct* task, void* data,
         {
             struct task_struct* child =
                 list_entry(list, struct task_struct, sibling);
-
-            status = walker->task_handler(child, data);
-            if (status == RECURSIVE_TASK_WALKER_STOP)
-            {
-                return;
-            }
-
             walk_task(child, data, walker);
         }
     }
+    suspend_task(task);
 }
 
 static int recursive_task_traverse(struct task_struct* task, void* data)
@@ -68,7 +63,8 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
 
 static void suspend_task(struct task_struct* task)
 {
-    // TODO: Does this actually work, its a bit hacky. also look at
+    // TODO: This does work, but its sort of gross. We shouldn't allow userspace
+    // to override us. Look into:
     // activate_task and deactivate_task
     // TODO: Block CONT signals until we are ready to resume.
     kill_pid(task_pid(task), SIGSTOP, 1);
