@@ -1,5 +1,5 @@
-#include "sus.h"
 #include "focused_ksm.h"
+#include "sus.h"
 #include "ultrafork.h"
 #include <linux/cdev.h>
 #include <linux/device.h>
@@ -84,6 +84,12 @@ static int __init sus_mod_init(void)
     if (ret < 0)
     {
         return ret;
+    }
+    if (IS_ERR(cl = class_create(THIS_MODULE, "char")))
+    {
+        cdev_del(&c_dev);
+        unregister_chrdev_region(dev, MINOR_CNT);
+        return PTR_ERR(cl);
     }
     if (IS_ERR(dev_ret = device_create(cl, NULL, dev, NULL, SUS_IOCTL)))
     {
