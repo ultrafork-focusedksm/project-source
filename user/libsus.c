@@ -5,7 +5,7 @@
 
 int sus_open()
 {
-    return open("/dev/sus_mod", O_RDWR);
+    return open("/dev/sus_ioctl", O_RDWR);
 }
 
 int sus_fksm_merge(int fd, pid_t pid1, pid_t pid2)
