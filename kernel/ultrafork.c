@@ -137,7 +137,8 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
 
 static void suspend_task(struct task_struct* task)
 {
-    // TODO: Does this actually work, its a bit hacky
+    // TODO: Does this actually work, its a bit hacky. also look at
+    // activate_task and deactivate_task
     // TODO: Block CONT signals until we are ready to resume.
     kill_pid(task_pid(task), SIGSTOP, 1);
 }
