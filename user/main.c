@@ -2,6 +2,7 @@
 #include <blake2.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <semaphore.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -33,6 +34,33 @@ void print_bytes(uint8_t* input, size_t size)
     printf("\n");
 }
 
+static void ufrk_fork_test(int fd)
+{
+    pid_t pid = fork();
+
+    if (pid > 0)
+    {
+        // parent process
+        // IMPORTANT: we pass getpid() here, not the pid of the child.
+        sus_ufrk_fork(fd, getpid(), 0);
+        sleep(10);
+    }
+    else if (pid == 0)
+    {
+        // child process
+        sleep(10);
+    }
+    else
+    {
+        printf("Unable to fork test process\n");
+    }
+}
+
+static void print_help(const char* progname)
+{
+    printf("%s -[uh]\nu: ultrafork test\nh: print help\n", progname);
+}
+
 int child(int num, int addr_segment_id, int pids_segment_id)
 {
     void** addrs = shmat(addr_segment_id, 0, 0);
@@ -55,7 +83,7 @@ int child(int num, int addr_segment_id, int pids_segment_id)
     return 0;
 }
 
-int fksm_parent(void)
+int fksm_parent(int fd)
 {
     void** addrs;
     int* pids;
@@ -128,7 +156,7 @@ int fksm_parent(void)
         printf("\n");
     }
 
-    int fd = sus_open();
+    /* int fd = sus_open(); */
     if (fd <= 0)
     {
         printf("Error opening ioctl: %d\n", errno);
@@ -150,8 +178,8 @@ int fksm_parent(void)
         printf("Slept\n");
     }
 
-    sus_close(fd);
-    printf("Closed ioctl\n");
+    /* sus_close(fd); */
+    /* printf("Closed ioctl\n"); */
 
 release:
     shmdt(pids);
@@ -165,9 +193,10 @@ release:
 
     return 0;
 }
-int hash_tree()
+
+static int hash_tree(int fd)
 {
-    int test = sus_hash_tree_test(sus_open(), 1);
+    int test = sus_hash_tree_test(fd, 1);
     if (test == 0)
     {
         printf("ioctl ran through\n");
@@ -175,7 +204,29 @@ int hash_tree()
     return test;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
-    fksm_parent();
+    int c;
+    int fd = sus_open();
+    while ((c = getopt(argc, argv, "uhfa")) != -1)
+    {
+        switch (c)
+        {
+        case 'u':
+            ufrk_fork_test(fd);
+            break;
+        case 'f':
+            fksm_parent(fd);
+            break;
+        case 'a':
+            hash_tree(fd);
+            break;
+        case 'h':
+        default:
+            print_help(argv[0]);
+            break;
+        }
+    }
+
+    return sus_close(fd);
 }

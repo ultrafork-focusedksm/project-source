@@ -45,6 +45,28 @@ int sus_hash_tree_test(int fd, int flags)
     }
 }
 
+int sus_ufrk_fork(int fd, pid_t pid, uint8_t flags)
+{
+    if (pid <= 0)
+    {
+        return EINVAL;
+    }
+
+    struct sus_ctx ctx;
+    ctx.mode = SUS_MODE_UFRK;
+    ctx.ufrk.pid = pid;
+    ctx.ufrk.flags = flags;
+
+    if (ioctl(fd, SUS_MOD_UFRK_FORK, &ctx) == -1)
+    {
+        return -errno;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 int sus_close(int fd)
 {
     return close(fd);
