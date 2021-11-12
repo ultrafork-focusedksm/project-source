@@ -6,9 +6,20 @@
 
 typedef struct list_head* sus_metadata_collection_t;
 
+struct walk_ctx
+{
+    struct metadata_collection* metadata_list;
+    struct mm_struct* mm;
+};
+
 struct metadata_collection
 {
-    struct page* page;
+    struct page_metadata
+    {
+        struct page* page;
+        pte_t* pte;
+        struct mm_struct* mm;
+    };
     struct list_head list;
     u8 checksum[SHA3_512_DIGEST_SIZE];
 };
