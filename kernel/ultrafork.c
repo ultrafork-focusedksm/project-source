@@ -11,6 +11,7 @@
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
+#include <linux/types.h>
 
 #define RECURSIVE_TASK_WALKER_CONTINUE 0
 #define RECURSIVE_TASK_WALKER_STOP 1
@@ -110,18 +111,49 @@ static int recursive_task_resume(struct task_struct* task, void* data)
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
+static inline void sus_freezer_do_not_count(struct task_struct* task)
+{
+    task->flags |= PF_FREEZER_SKIP;
+}
+
+static inline void sus_freezer_count(struct task_struct* task)
+{
+    task->flags &= ~PF_FREEZER_SKIP;
+    // TODO: check this
+    smp_mb();
+    // TODO: examine return
+    freeze_task(task);
+}
+
+static void sus_cgroup_enter_frozen(struct task_struct* task)
+{
+    struct cgroup* cgrp;
+
+    if (!task->frozen)
+    {
+        /* spin_lock_irq(&css_set_lock); */
+
+        task->frozen = true;
+        cgrp = task_dfl_cgroup(task);
+        cgroup_inc_frozen_cnt(cgrp);
+        cgroup_update_frozen(cgrp);
+
+        /* spin_unlock_irq(&css_set_lock); */
+    }
+}
+
 static int wait_for_vfork_done(struct task_struct* child,
                                struct completion* vfork)
 {
     int killed;
 
+    sus_freezer_do_not_count(child);
     // TODO: this probably isn't right
-    freezer_do_not_count();
     cgroup_enter_frozen();
     killed = wait_for_completion_killable(vfork);
     cgroup_leave_frozen(false);
 
-    freezer_count();
+    sus_freezer_count(child);
 
     if (killed)
     {
