@@ -1,5 +1,6 @@
 #include "focused_ksm.h"
 #include "sus.h"
+#include <asm/types.h>
 #include <crypto/internal/hash.h>
 #include <crypto/sha3.h>
 #include <linux/crypto.h>
@@ -7,11 +8,14 @@
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
+#include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/page-flags.h>
 #include <linux/pagemap.h>
 #include <linux/pagewalk.h>
 #include <linux/pgtable.h>
+#include <linux/types.h>
 
 static struct task_struct* find_task_from_pid(unsigned long pid)
 {
@@ -19,28 +23,29 @@ static struct task_struct* find_task_from_pid(unsigned long pid)
     return get_pid_task(pid_struct, PIDTYPE_PID);
 }
 
-static int fksm_hash(struct shash_desc* desc, struct page* page, unsigned int len,
-                u8* out)
+static int fksm_hash(struct shash_desc* desc, struct page* page,
+                     unsigned int len, u8* out)
 {
     int err;
     void* addr = kmap_atomic(page); // address to page
     if (IS_ERR(addr))
     {
         kunmap_atomic(addr);
-        pr_info(
-            "FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error pointer");
+        pr_info("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
+                "pointer");
         return -1;
     }
     // kmap atomic critical section, accessing page transparently? Need to
     // verify ignore huge pages
-    err = crypto_shash_digest(desc, addr, PAGE_SIZE, );
+    err = crypto_shash_digest(desc, addr, len, out);
     kunmap_atomic(addr);
     if (err)
     {
-        pr_info("FKSM_ERROR: in fksm_hash() helper, digest function returned error");
+        pr_info("FKSM_ERROR: in fksm_hash() helper, digest function returned "
+                "error");
         return err;
     }
-    return 0
+    return 0;
 }
 
 static int callback_pte_range(pte_t* pte, unsigned long addr,
@@ -54,10 +59,10 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
     struct page* current_page = pte_page(*pte); // page from page table entry
 
-    // TODO: check page flags
-    // TODO: tag to identify which part of union. check documentation
-    // probably a macro to query page type. sched.h or mm_types
-    if (true)
+    // TODO: find out if THP will be walked through or only pointed to the head
+    // TODO: compound pages walking through tails too?
+    if (PageAnon(current_page) || PageCompound(current_page) ||
+        PageTransHuge(current_page))
     {
         struct crypto_shash* tfm; // hash transform object
         struct shash_desc* desc;
@@ -77,25 +82,25 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         }
         desc->tfm = tfm; // set descriptor transform object for our hashing call
 
-        struct metadata_collection* new_meta =
-            kmalloc(sizeof(*new_meta), GFP_KERNEL);
+        struct metadata_collection* new_meta;
+        new_meta = kmalloc(sizeof(*new_meta), GFP_KERNEL);
         if (IS_ERR(new_meta))
         {
             pr_info("FKSM_ERROR: in callback, new_meta not allocated");
         }
 
-        new_meta->page_metadata->page = current_page;//set page_metadata values
-        new_meta->page_metadata->pte = pte;
-        new_meta->page_metadata->mm = walk->private->mm;
-
         if (fksm_hash(desc, current_page, PAGE_SIZE, new_meta->checksum) != 0)
         {
-            pr_info("FKSM_ERROR: in callback, fksm_hash() helper returned error");
+            pr_info(
+                "FKSM_ERROR: in callback, fksm_hash() helper returned error");
         }
-
-        list_add(&new_meta->list, walk->private->metadata_list);
         kfree(tfm);
         kfree(desc);
+
+        new_meta->page_metadata->page = current_page; // set page_metadata
+        new_meta->page_metadata->pte = pte;
+        new_meta->page_metadata->mm = walk->mm;
+        list_add(new_meta->list, (struct list_head*)walk->private);
     }
     return 0;
 }
@@ -106,26 +111,19 @@ static sus_metadata_collection_t traverse(unsigned long pid)
 {
     struct task_struct* task = find_task_from_pid(pid); // get task struct
 
-    sus_metadata_collection_t metadata_list =
-        kmalloc(sizeof(metadata_list), GFP_KERNEL); // output list
+    sus_metadata_collection_t metadata_list;
+    metadata_list = kmalloc(sizeof(metadata_list), GFP_KERNEL);
+
     if (IS_ERR(metadata_list))
     {
         pr_info("FKSM_ERROR: metadata_list not allocated");
     }
-    LIST_HEAD(metadata_list); // initialize list
+    INIT_LIST_HEAD(metadata_list); // initialize list
 
-    struct walk_ctx* walk_context;
-    walk_context = kmalloc(sizeof(walk_ctx), GFP_KERNEL);
-    if (IS_ERR(walk_context))
-    {
-        pr_info("FKSM_ERROR: walk_context not allocated");
-    }
-
-    walk_context->metadata_list = metadata_list walk_context->mm = task->mm;
-
-    mmap_read_lock(task->mm); // use task.mm?
-    walk_page_range(task->mm, 0, TASK_SIZE, &task_walk_ops, &walk_context);
-    mmap_read_unlock(task->mm);
+    mmap_read_lock(task->active_mm);
+    walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops,
+                    &metadata_list);
+    mmap_read_unlock(task->active_mm);
 
     return metadata_list;
 }
