@@ -186,14 +186,15 @@ static pid_t sus_kernel_clone(struct task_struct* target,
         }
     }
 
-    p = copy_process(target, trace, NUMA_NO_NODE, args);
+    p = copy_process(task_pid(target), trace, NUMA_NO_NODE, args);
 
     if (IS_ERR(p))
     {
         return PTR_ERR(p);
     }
 
-    trace_sched_process_fork(target, p);
+    // TODO: 
+    // trace_sched_process_fork(target, p);
 
     pid = get_task_pid(p, PIDTYPE_PID);
     nr = pid_vnr(pid);
@@ -244,11 +245,14 @@ static int recursive_fork(struct task_struct* task, void* data)
 
     if (0 == ctx->counter)
     {
-        pr_info("rfork: adjusting pointers of lead process\n");
+
         struct task_struct* previous_parent = forked_task->parent;
         struct task_struct* iter;
         struct list_head* pos;
         struct list_head* q;
+
+        pr_info("rfork: adjusting pointers of lead process\n");
+
         // This means we are the parent process of the group
         // we need to adjust this process (meaning the forked_task) to have
         // the same parent has task. Eventually we will also have namespacing
