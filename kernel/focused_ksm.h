@@ -1,22 +1,25 @@
 #ifndef _FOCUSED_KSM_H
 #define _FOCUSED_KSM_H
 
+#include <asm/types.h>
+#include <crypto/internal/hash.h>
 #include <crypto/sha3.h>
-#include <linux/list.h>
+#include <linux/pgtable.h>
+#include <linux/types.h>
 
 typedef struct list_head* sus_metadata_collection_t;
 
-struct walk_ctx
+struct page_metadata
 {
-    struct metadata_collection* metadata_list;
+    struct page* page;
+    pte_t* pte;
     struct mm_struct* mm;
 };
 
 struct metadata_collection
 {
-    u8 checksum[SHA3_512_DIGEST_SIZE];
-    struct page* page;
-    struct list_head list;
+    struct page_metadata* page_metadata;
+    struct list_head* list;
     u8 checksum[SHA3_512_DIGEST_SIZE];
 };
 
