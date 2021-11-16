@@ -24,4 +24,7 @@ struct metadata_collection
 };
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2);
+
+void combine(sus_metadata_collection_t list1,
+             sus_metadata_collection_t list2);
 #endif
