@@ -149,8 +149,8 @@ static int wait_for_vfork_done(struct task_struct* child,
     return killed;
 }
 
-static pid_t sus_kernel_clone(struct task_struct* target,
-                              struct kernel_clone_args* args)
+static struct task_struct* sus_kernel_clone(struct task_struct* target,
+                                            struct kernel_clone_args* args)
 {
     u64 clone_flags = args->flags;
     struct completion vfork;
@@ -162,7 +162,8 @@ static pid_t sus_kernel_clone(struct task_struct* target,
     if ((args->flags & CLONE_PIDFD) && (args->flags & CLONE_PARENT_SETTID) &&
         (args->pidfd == args->parent_tid))
     {
-        return -EINVAL;
+        /* return -EINVAL; */
+        return NULL;
     }
 
     if (!(clone_flags & CLONE_UNTRACED))
@@ -190,10 +191,12 @@ static pid_t sus_kernel_clone(struct task_struct* target,
 
     if (IS_ERR(p))
     {
-        return PTR_ERR(p);
+        pr_err("ufrk: sus_kernel_clone: copy_process reported error\n");
+        //    return PTR_ERR(p);
+        return NULL;
     }
 
-    // TODO: 
+    // TODO:
     // trace_sched_process_fork(target, p);
 
     pid = get_task_pid(p, PIDTYPE_PID);
@@ -228,15 +231,21 @@ static pid_t sus_kernel_clone(struct task_struct* target,
 
     put_pid(pid);
 
-    return nr;
+    return p;
 }
 
 static int recursive_fork(struct task_struct* task, void* data)
 {
     struct rfork_context* ctx = (struct rfork_context*)data;
     struct kernel_clone_args args = {.exit_signal = SIGCHLD};
-    struct task_struct* forked_task =
-        copy_process(task_pid(task), 0, NUMA_NO_NODE, &args);
+
+    struct task_struct* forked_task = sus_kernel_clone(task, &args);
+
+    if (forked_task == NULL)
+    {
+        pr_err("ufrk: failed to fork task, counter: %d\n", ctx->counter);
+        return -EACCES;
+    }
 
     pr_info("rfork orig  : %s, pid=%d, tgid=%d\n", task->comm, task->pid,
             task->tgid);
@@ -393,6 +402,7 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
 
     walk_task(parent, NULL, &rtask_logger);
 
+    pr_info("Tasks locked, preparing fork\n");
     struct rfork_context ctx = {
         .forked_parent = NULL,
         .original_grandparent = parent->parent,
