@@ -144,6 +144,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     {
         struct crypto_shash* tfm; // hash transform object
         struct shash_desc* desc;
+        struct metadata_collection* new_meta;
 
         tfm = crypto_alloc_shash("sha3-512", 0, 0); // init transform object
         if (IS_ERR(tfm))
@@ -160,12 +161,12 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         }
         desc->tfm = tfm; // set descriptor transform object for our hashing call
 
-        struct metadata_collection* new_meta;
-        new_meta = kmalloc(sizeof(*new_meta), GFP_KERNEL);
+        new_meta = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
         if (IS_ERR(new_meta))
         {
             pr_err("FKSM_ERROR: in callback, new_meta not allocated");
         }
+        INIT_LIST_HEAD(new_meta->list); // initialize list
 
         if (fksm_hash(desc, current_page, PAGE_SIZE, new_meta->checksum) != 0)
         {
@@ -175,9 +176,9 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         kfree(tfm);
         kfree(desc);
 
-        new_meta->page_metadata->page = current_page; // set page_metadata
-        new_meta->page_metadata->pte = pte;
-        new_meta->page_metadata->mm = walk->mm;
+        new_meta->page_metadata.page = current_page; // set page_metadata
+        new_meta->page_metadata.pte = pte;
+        new_meta->page_metadata.mm = walk->mm;
         list_add(new_meta->list, (struct list_head*)walk->private);
     }
     return 0;
