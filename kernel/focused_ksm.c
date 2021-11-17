@@ -22,10 +22,13 @@
 #include <linux/mm_types.h>
 #include <linux/mmu_notifier.h>
 #include <stdbool.h>
+<<<<<<< HEAD
 =======
 #include <linux/list.h>
 #include <linux/rmap.h>
 >>>>>>> Actually remembered to check the checksum
+=======
+>>>>>>> a5500a07b5f594d9fb1460fd709acc1f3ff27852
 
 static int replace_page(struct vm_area_struct *vma, struct page *page,
                         struct page *kpage, pte_t orig_pte)
@@ -215,6 +218,9 @@ static void combine(sus_metadata_collection_t list1,
                     sus_metadata_collection_t list2)
 {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> a5500a07b5f594d9fb1460fd709acc1f3ff27852
 
     struct metadata_collection* curr_list1;
     struct metadata_collection* curr_list2;
@@ -229,6 +235,7 @@ static void combine(sus_metadata_collection_t list1,
                 struct vm_area_struct *curr_vma = find_vma(curr_list1->page_metadata->mm, curr_page1->virtual);
 
                 replace_page(curr_vma, curr_page1, curr_page2, *(curr_list1->page_metadata->pte));
+<<<<<<< HEAD
 =======
     //TODO: Use list_for_each_entry
     sus_metadata_collection_t* curr_list1;
@@ -246,6 +253,8 @@ static void combine(sus_metadata_collection_t list1,
                 //TODO: need a custom struct so we can have pte and mm_struct
                 replace_page(curr_vma, curr_page1, curr_page2, orig_pte);
 >>>>>>> Actually remembered to check the checksum
+=======
+>>>>>>> a5500a07b5f594d9fb1460fd709acc1f3ff27852
             }
 
         }
