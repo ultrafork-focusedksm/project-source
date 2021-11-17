@@ -31,7 +31,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
     if (IS_ERR(addr))
     {
         kunmap_atomic(addr);
-        pr_info("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
+        pr_err("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
                 "pointer");
         return -1;
     }
@@ -41,8 +41,8 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
     kunmap_atomic(addr);
     if (err)
     {
-        pr_info("FKSM_ERROR: in fksm_hash() helper, digest function returned "
-                "error");
+        pr_err("FKSM_ERROR: in fksm_hash() helper, digest function returned "
+               "error");
         return err;
     }
     return 0;
@@ -70,15 +70,15 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         tfm = crypto_alloc_shash("sha3-512", 0, 0); // init transform object
         if (IS_ERR(tfm))
         {
-            pr_info("FKSM_ERROR: in callback, crypto tfm object identified as "
-                    "error pointer");
+            pr_err("FKSM_ERROR: in callback, crypto tfm object identified as "
+                   "error pointer");
         }
         desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm),
                        GFP_KERNEL); // init descriptor object
         if (IS_ERR(desc))
         {
-            pr_info("FKSM_ERROR: in callback, crypto desc object identified as "
-                    "error pointer");
+            pr_err("FKSM_ERROR: in callback, crypto desc object identified as "
+                   "error pointer");
         }
         desc->tfm = tfm; // set descriptor transform object for our hashing call
 
@@ -86,12 +86,12 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         new_meta = kmalloc(sizeof(*new_meta), GFP_KERNEL);
         if (IS_ERR(new_meta))
         {
-            pr_info("FKSM_ERROR: in callback, new_meta not allocated");
+            pr_err("FKSM_ERROR: in callback, new_meta not allocated");
         }
 
         if (fksm_hash(desc, current_page, PAGE_SIZE, new_meta->checksum) != 0)
         {
-            pr_info(
+            pr_err(
                 "FKSM_ERROR: in callback, fksm_hash() helper returned error");
         }
         kfree(tfm);
@@ -116,7 +116,7 @@ static sus_metadata_collection_t traverse(unsigned long pid)
 
     if (IS_ERR(metadata_list))
     {
-        pr_info("FKSM_ERROR: metadata_list not allocated");
+        pr_err("FKSM_ERROR: metadata_list not allocated");
     }
     INIT_LIST_HEAD(metadata_list); // initialize list
 
