@@ -18,7 +18,7 @@ struct page_metadata
 
 struct metadata_collection
 {
-    struct list_head* list;
+    struct list_head list;
     struct page_metadata page_metadata;
     u8 checksum[SHA3_512_DIGEST_SIZE];
 };
