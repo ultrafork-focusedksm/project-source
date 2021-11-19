@@ -23,6 +23,37 @@
 #include <linux/mmu_notifier.h>
 #include <stdbool.h>
 
+static struct task_struct* find_task_from_pid(unsigned long pid)
+{
+    struct pid* pid_struct = find_get_pid(pid);
+    return get_pid_task(pid_struct, PIDTYPE_PID);
+}
+
+static int fksm_hash(struct shash_desc* desc, struct page* page,
+                     unsigned int len, u8* out)
+{
+    int err;
+    void* addr = kmap_atomic(page); // address to page
+    if (IS_ERR(addr))
+    {
+        kunmap_atomic(addr);
+        pr_err("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
+                "pointer");
+        return -1;
+    }
+    // kmap atomic critical section, accessing page transparently? Need to
+    // verify ignore huge pages
+    err = crypto_shash_digest(desc, addr, len, out);
+    kunmap_atomic(addr);
+    if (err)
+    {
+        pr_err("FKSM_ERROR: in fksm_hash() helper, digest function returned "
+               "error");
+        return err;
+    }
+    return 0;
+}
+
 static int callback_pte_range(pte_t* pte, unsigned long addr,
                               unsigned long next, struct mm_walk* walk)
 {
