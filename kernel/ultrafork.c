@@ -1,4 +1,5 @@
 #include "ultrafork.h"
+#include <linux/anon_inodes.h>
 #include <linux/audit.h>
 #include <linux/cgroup.h>
 #include <linux/cn_proc.h>
@@ -12,6 +13,7 @@
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/livepatch.h>
+#include <linux/mempolicy.h>
 #include <linux/module.h>
 #include <linux/perf_event.h>
 #include <linux/ptrace.h>
@@ -39,7 +41,7 @@
  *
  * DO NOT include any headers _after_ this line, or all hell will break loose.
  */
-#define current ERROR
+//#define current ERROR
 
 struct recursive_task_walker
 {
@@ -271,6 +273,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     int retval;
     struct task_struct* p;
     struct multiprocess_signals delayed;
+    struct file* pidfile = NULL;
     u64 clone_flags = args->flags;
     struct nsproxy* nsp = target->nsproxy;
     struct pid* pid = task_pid(target);
@@ -416,21 +419,8 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      * to stop root fork bombs.
      */
     retval = -EAGAIN;
-    if (data_race(nr_threads >= max_threads))
-        goto bad_fork_cleanup_count;
-
-    retval = copy_creds(p, clone_flags);
-    if (retval < 0)
-        goto bad_fork_free;
-
-    /*
-     * If multiple threads are within copy_process(), then this check
-     * triggers too late. This doesn't hurt, the check is only there
-     * to stop root fork bombs.
-     */
-    retval = -EAGAIN;
-    if (data_race(nr_threads >= max_threads))
-        goto bad_fork_cleanup_count;
+    //   if (data_race(nr_threads >= max_threads))
+    //        goto bad_fork_cleanup_count;
 
     delayacct_tsk_init(p); /* Must remain after dup_task_struct() */
     p->flags &= ~(PF_SUPERPRIV | PF_WQ_WORKER | PF_IDLE | PF_NO_SETAFFINITY);
@@ -554,7 +544,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = copy_namespaces(clone_flags, p);
     if (retval)
         goto bad_fork_cleanup_mm;
-    retval = copy_io(clone_flags, p);
+    retval = sus_copy_io(clone_flags, p);
     if (retval)
         goto bad_fork_cleanup_namespaces;
     retval =
@@ -588,8 +578,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
 
         pidfd = retval;
 
-        pidfile =
-            anon_inode_getfile("[pidfd]", &pidfd_fops, pid, O_RDWR | O_CLOEXEC);
+        pidfile = fork_get_pidfile(pid);
         if (IS_ERR(pidfile))
         {
             put_unused_fd(pidfd);
@@ -675,7 +664,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      * Make it visible to the rest of the system, but dont wake it up yet.
      * Need tasklist lock for parent etc handling!
      */
-    write_lock_irq(&tasklist_lock);
+    fork_write_lock_irq();
 
     /* CLONE_PARENT re-uses the old parent */
     if (clone_flags & (CLONE_PARENT | CLONE_THREAD))
@@ -758,7 +747,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
             attach_pid(p, PIDTYPE_TGID);
             attach_pid(p, PIDTYPE_PGID);
             attach_pid(p, PIDTYPE_SID);
-            __this_cpu_inc(process_counts);
+            increment_process_count();
         }
         else
         {
@@ -770,20 +759,20 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
             list_add_tail_rcu(&p->thread_node, &p->signal->thread_head);
         }
         attach_pid(p, PIDTYPE_PID);
-        nr_threads++;
+        //        nr_threads++;
     }
     /* total_forks++; */
     hlist_del_init(&delayed.node);
     spin_unlock(&target->sighand->siglock);
-    syscall_tracepoint_update(p);
-    write_unlock_irq(&tasklist_lock);
+    // syscall_tracepoint_update(p);
+    fork_write_unlock_irq();
 
     proc_fork_connector(p);
     sched_post_fork(p);
     cgroup_post_fork(p, args);
     perf_event_fork(p);
 
-    trace_task_newtask(p, clone_flags);
+    // trace_task_newtask(p, clone_flags);
     uprobe_copy_process(p, clone_flags);
 
     copy_oom_score_adj(clone_flags, p);
@@ -792,7 +781,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
 bad_fork_cancel_cgroup:
     sched_core_free(p);
     spin_unlock(&target->sighand->siglock);
-    write_unlock_irq(&tasklist_lock);
+    fork_write_unlock_irq();
     cgroup_cancel_fork(p, args);
 bad_fork_put_pidfd:
     if (clone_flags & CLONE_PIDFD)
@@ -840,7 +829,7 @@ bad_fork_cleanup_policy:
 bad_fork_cleanup_threadgroup_lock:
 #endif
     delayacct_tsk_free(p);
-bad_fork_cleanup_count:
+    // bad_fork_cleanup_count:
     dec_rlimit_ucounts(task_ucounts(p), UCOUNT_RLIMIT_NPROC, 1);
     exit_creds(p);
 bad_fork_free:
@@ -854,8 +843,8 @@ fork_out:
     return ERR_PTR(retval);
 }
 
-static pid_t sus_kernel_clone(struct task_struct* target,
-                              struct kernel_clone_args* args)
+static struct task_struct* sus_kernel_clone(struct task_struct* target,
+                                            struct kernel_clone_args* args)
 {
     u64 clone_flags = args->flags;
     struct completion vfork;
@@ -868,6 +857,7 @@ static pid_t sus_kernel_clone(struct task_struct* target,
         (args->pidfd == args->parent_tid))
     {
         /* return -EINVAL; */
+        pr_err("ufrk: sus_kernel_clone: invalid clone flags passed\n");
         return NULL;
     }
 
@@ -1105,9 +1095,10 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
+    pr_info("ufrk: locking process group\n");
     walk_task(parent, NULL, &rtask_logger);
 
-    pr_info("Tasks locked, preparing fork\n");
+    pr_info("ufrk: tasks locked, preparing fork\n");
     struct rfork_context ctx = {
         .forked_parent = NULL,
         .original_grandparent = parent->parent,
@@ -1115,6 +1106,7 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     };
     walk_task(parent, &ctx, &rfork_walker);
 
+    pr_info("ufrk: resuming process group\n");
     walk_task(parent, NULL, &rfork_resume_walker);
     return 0;
 }
