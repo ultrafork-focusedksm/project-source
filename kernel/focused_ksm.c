@@ -1,8 +1,8 @@
 #include "focused_ksm.h"
 #include "sus.h"
 #include <asm/types.h>
+#include <crypto/blake2b.h>
 #include <crypto/internal/hash.h>
-#include <crypto/sha3.h>
 #include <linux/crypto.h>
 #include <linux/err.h>
 #include <linux/errno.h>
@@ -32,7 +32,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
     {
         kunmap_atomic(addr);
         pr_err("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
-                "pointer");
+               "pointer");
         return -1;
     }
     // kmap atomic critical section, accessing page transparently? Need to
@@ -45,6 +45,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                "error");
         return err;
     }
+    // TODO: print blake2b hash here with pr_info (how to print pointer?)
     return 0;
 }
 
@@ -68,7 +69,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         struct shash_desc* desc;
         struct metadata_collection* new_meta;
 
-        tfm = crypto_alloc_shash("sha3-512", 0, 0); // init transform object
+        tfm = crypto_alloc_shash("blake2b-512", 0, 0); // init transform object
         if (IS_ERR(tfm))
         {
             pr_err("FKSM_ERROR: in callback, crypto tfm object identified as "
