@@ -17,6 +17,16 @@
 #include <linux/pgtable.h>
 #include <linux/types.h>
 
+void kprint_bytes(char* input, int size)
+{
+    int i;
+    for (i = 0; i < size; i++)
+    {
+        printk(KERN_INFO "%02X", input[i]);
+    }
+    printk(KERN_INFO "\n");
+}
+
 static struct task_struct* find_task_from_pid(unsigned long pid)
 {
     struct pid* pid_struct = find_get_pid(pid);
@@ -45,7 +55,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                "error");
         return err;
     }
-    // TODO: print blake2b hash here with pr_info (how to print pointer?)
+    kprint_bytes(out, BLAKE2B_512_HASH_SIZE);
     return 0;
 }
 

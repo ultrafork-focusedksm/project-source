@@ -16,26 +16,26 @@
 #define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
 
+void print_bytes(char* input, int size)
+{
+    for (int i = 0; i < size; i++)
+    {
+        printf("%c", input[i]);
+    }
+    printf("\n");
+}
+
 int child(int num)
 {
-    // TOOD: error checking
-    int addrs_fd = shm_open(FKSM_ADDR, O_RDWR, S_IRUSR | S_IWUSR);
-    if (addrs_fd == -1)
-    {
-        perror("addr shm_open failed");
-        exit(EXIT_FAILURE);
-    }
     int pids_fd = shm_open(FKSM_PIDS, O_RDWR, S_IRUSR | S_IWUSR);
     if (pids_fd == -1)
     {
         perror("pids shm_open failed");
         exit(EXIT_FAILURE);
     }
-    void** addrs = mmap(NULL, sizeof(void*) * PAGES_PER_PID * NUM_PIDS,
-                        PROT_READ | PROT_WRITE, MAP_SHARED, addrs_fd, 0);
-    if (addrs == MAP_FAILED)
+    if (ftruncate(pids_fd, sizeof(void*) * NUM_PIDS) == -1)
     {
-        perror("addrs mmap failed");
+        perror("pids ftruncate");
         exit(EXIT_FAILURE);
     }
     pid_t* pids = mmap(NULL, sizeof(pid_t) * NUM_PIDS, PROT_READ | PROT_WRITE,
@@ -46,30 +46,44 @@ int child(int num)
         exit(EXIT_FAILURE);
     }
 
-    pids[(1 + (1 * num))] = getpid(); // offset by 1 for the children segment,
+    int addrs_fd = shm_open(FKSM_ADDR, O_RDWR, S_IRUSR | S_IWUSR);
+    if (addrs_fd == -1)
+    {
+        perror("addr shm_open failed");
+        exit(EXIT_FAILURE);
+    }
+    if (ftruncate(addrs_fd, sizeof(void*) * PAGES_PER_PID * NUM_PIDS) == -1)
+    {
+        perror("addrs ftruncate");
+        exit(EXIT_FAILURE);
+    }
+    void** addrs = mmap(NULL, sizeof(void*) * PAGES_PER_PID * NUM_PIDS,
+                        PROT_READ | PROT_WRITE, MAP_SHARED, addrs_fd, 0);
+    if (addrs == MAP_FAILED)
+    {
+        perror("addrs mmap failed");
+        exit(EXIT_FAILURE);
+    }
+    
+
+    pids[(1 + num)] = getpid(); // offset by 1 for the children segment,
                                       // then offset by num of the child
-    int child_offset = PAGES_PER_PID * num;//offset for which child we are
+    int child_offset;
+    child_offset = PAGES_PER_PID * num; // offset for which child we are
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
-        addrs[(child_offset + PAGES_PER_PID + i)] =
-            malloc(sizeof(char) * 4096);
+        addrs[(child_offset + PAGES_PER_PID + i)] = malloc(getpagesize());
     }
+
+    sleep(60);
 
     return 0;
 }
 
 int main(void)
 {
-    // TODO: BLAKE2b each page from userspace and print hashes
-    // TODO: call ioctl and print hashes 
+    // TODO: call ioctl and print hashes
 
-    int addrs_fd =
-        shm_open(FKSM_ADDR, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
-    if (addrs_fd == -1)
-    {
-        perror("addr shm_open failed");
-        exit(EXIT_FAILURE);
-    }
     int pids_fd =
         shm_open(FKSM_PIDS, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
     if (pids_fd == -1)
@@ -77,26 +91,43 @@ int main(void)
         perror("pids shm_open failed");
         exit(EXIT_FAILURE);
     }
-
-    void** addrs = mmap(NULL, sizeof(void*) * 10, PROT_READ | PROT_WRITE,
-                        MAP_SHARED, addrs_fd, 0);
-    if (addrs == MAP_FAILED)
+    if (ftruncate(pids_fd, sizeof(void*) * NUM_PIDS) == -1)
     {
-        perror("addrs mmap failed");
+        perror("pids ftruncate");
         exit(EXIT_FAILURE);
     }
-    pid_t* pids = mmap(NULL, sizeof(pid_t) * 2, PROT_READ | PROT_WRITE,
+    pid_t* pids = mmap(NULL, sizeof(pid_t) * NUM_PIDS, PROT_READ | PROT_WRITE,
                        MAP_SHARED, pids_fd, 0);
     if (pids == MAP_FAILED)
     {
         perror("pids mmap failed");
         exit(EXIT_FAILURE);
     }
+    int addrs_fd =
+        shm_open(FKSM_ADDR, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+    if (addrs_fd == -1)
+    {
+        perror("addr shm_open failed");
+        exit(EXIT_FAILURE);
+    }
+    if (ftruncate(addrs_fd, sizeof(void*) * PAGES_PER_PID * NUM_PIDS) == -1)
+    {
+        perror("addrs ftruncate");
+        exit(EXIT_FAILURE);
+    }
+    void** addrs = mmap(NULL, sizeof(void*) * PAGES_PER_PID * NUM_PIDS,
+                        PROT_READ | PROT_WRITE, MAP_SHARED, addrs_fd, 0);
+    if (addrs == MAP_FAILED)
+    {
+        perror("addrs mmap failed");
+        exit(EXIT_FAILURE);
+    }
+    
 
     pids[0] = getpid();
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
-        addrs[i] = malloc(sizeof(char) * 4096);
+        addrs[i] = malloc(sizeof(char) * getpagesize());
     }
 
     pid_t cpid;
@@ -116,7 +147,21 @@ int main(void)
     else
     { /* Code executed by parent */
         sleep(1);
-        // TODO: BLAKE2b hash each page here
+        char blake2b_out[BLAKE2B_OUTBYTES];
+        for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
+        {
+            int res =
+                blake2b(blake2b_out, BLAKE2B_OUTBYTES, addrs[i], getpagesize(),
+                        NULL, 0); // todo: add key and keylen?
+            if (res == -1)
+            {
+                printf("blake2b hash error");
+            }
+            else
+            {
+                print_bytes(blake2b_out, BLAKE2B_OUTBYTES);
+            }
+        }
     }
 
     int fd = sus_open();
