@@ -109,7 +109,7 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
 
     node->task = task;
     INIT_LIST_HEAD(&node->list);
-    list_add(&node->list, &ctx->list);
+    list_add_tail(&node->list, &ctx->list);
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
