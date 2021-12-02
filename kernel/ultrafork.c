@@ -1,4 +1,5 @@
 #include "ultrafork.h"
+#include "recursive_task_walker.h"
 #include "sus_fork.h"
 #include <linux/anon_inodes.h>
 #include <linux/cgroup.h>
@@ -11,23 +12,6 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/types.h>
-
-#define RECURSIVE_TASK_WALKER_CONTINUE 0
-#define RECURSIVE_TASK_WALKER_STOP 1
-
-struct recursive_task_walker
-{
-    /**
-     * Define a visitor for each task.
-     *
-     * @param task The task being visited
-     * @param data Private data passed into the walker for use in these
-     * functions.
-     * @return RECURSIVE_TASK_WALKER_CONTINUE to keep traversing,
-     * RECURSIVE_TASK_WALKER_STOP to stop traversing.
-     */
-    int (*task_handler)(struct task_struct* task, void* data);
-};
 
 /**
  * A fork involves two processes, the parent and the child. A recursive
@@ -66,37 +50,6 @@ static struct recursive_task_walker rtask_logger = {
 static struct recursive_task_walker rfork_resume_walker = {
     .task_handler = recursive_task_resume,
 };
-
-/**
- * Recursive task walker. Given a task, visit it, and all its
- * decendants.
- * @param task The parent task structure
- * @param data Private data pointer for the handlers to use.
- * @param walker The walker context
- */
-static void walk_task(struct task_struct* task, void* data,
-                      struct recursive_task_walker* walker)
-{
-    struct list_head* list;
-
-    int status = walker->task_handler(task, data);
-    if (status == RECURSIVE_TASK_WALKER_CONTINUE)
-    {
-        list_for_each(list, &task->children)
-        {
-            struct task_struct* child =
-                list_entry(list, struct task_struct, sibling);
-            if (unlikely(NULL == child))
-            {
-                pr_err("rtask_walker: unexpected NULL child\n");
-            }
-            else
-            {
-                walk_task(child, data, walker);
-            }
-        }
-    }
-}
 
 static int recursive_task_traverse(struct task_struct* task, void* data)
 {
