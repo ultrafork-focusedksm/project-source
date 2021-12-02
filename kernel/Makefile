@@ -9,6 +9,7 @@ sus-y := sus_main.o
 sus-y += focused_ksm.o
 sus-y += ultrafork.o
 sus-y += hash_tree.o
+sus-y += sus_fork.o
 
 .PHONY: build install load clean
 
