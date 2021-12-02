@@ -283,17 +283,28 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      * namespace
      */
     if ((clone_flags & (CLONE_NEWNS | CLONE_FS)) == (CLONE_NEWNS | CLONE_FS))
+    {
+        pr_err("sus_copy_process: root directory cannot be shared across "
+               "namespaces\n");
         return ERR_PTR(-EINVAL);
+    }
 
     if ((clone_flags & (CLONE_NEWUSER | CLONE_FS)) ==
         (CLONE_NEWUSER | CLONE_FS))
+    {
+        pr_err("sus_copy_process: can't clone the filesystem and be a in a "
+               "user ns\n");
         return ERR_PTR(-EINVAL);
+    }
     /*
      * Thread groups must share signals as well, and detached threads
      * can only be started up within the thread group.
      */
     if ((clone_flags & CLONE_THREAD) && !(clone_flags & CLONE_SIGHAND))
+    {
+        pr_err("sus_copy_process: thread groups must share signal handlers\n");
         return ERR_PTR(-EINVAL);
+    }
 
     /*
      * Shared signal handlers imply shared VM. By way of the above,
@@ -301,7 +312,11 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      * for various simplifications in other code.
      */
     if ((clone_flags & CLONE_SIGHAND) && !(clone_flags & CLONE_VM))
+    {
+        pr_err(
+            "sus_copy_process: shared signal handlers imply sharing memory\n");
         return ERR_PTR(-EINVAL);
+    }
 
     /*
      * Siblings of global init remain as zombies on exit since they are
@@ -311,7 +326,10 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      */
     if ((clone_flags & CLONE_PARENT) &&
         target->signal->flags & SIGNAL_UNKILLABLE)
+    {
+        pr_err("sus_copy_process: global inits cannot spawn siblings\n");
         return ERR_PTR(-EINVAL);
+    }
 
     /*
      * If the new process will be in a different pid or user namespace
@@ -321,7 +339,11 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     {
         if ((clone_flags & (CLONE_NEWUSER | CLONE_NEWPID)) ||
             (task_active_pid_ns(target) != nsp->pid_ns_for_children))
+        {
+            pr_err("sus_copy_process: thread groups cannot exist across pid "
+                   "and user namespaces\n");
             return ERR_PTR(-EINVAL);
+        }
     }
 
     /*
@@ -331,7 +353,10 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     if (clone_flags & (CLONE_THREAD | CLONE_VM))
     {
         if (nsp->time_ns != nsp->time_ns_for_children)
+        {
+            pr_err("sus_copy_process: time namespaces imply non-shared VM\n");
             return ERR_PTR(-EINVAL);
+        }
     }
 
     if (clone_flags & CLONE_PIDFD)
@@ -342,7 +367,11 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
          * - CLONE_THREAD is blocked until someone really needs it.
          */
         if (clone_flags & (CLONE_DETACHED | CLONE_THREAD))
+        {
+            pr_err(
+                "sus_copy_process: block clone pidfd and thead until needed\n");
             return ERR_PTR(-EINVAL);
+        }
     }
     /*
      * Force any signals received before this point to be delivered
@@ -360,12 +389,19 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     spin_unlock_irq(&target->sighand->siglock);
     retval = -ERESTARTNOINTR;
     if (task_sigpending(target))
-        goto fork_out;
+    {
+        pr_err("sus_copy_process: target is SIGPENDING\n");
+        // TODO: probably don't want this to be commented out
+        /* goto fork_out; */
+    }
 
     retval = -ENOMEM;
     p = dup_task_struct(target, node);
     if (!p)
+    {
+        pr_err("sus_copy_process: dup_task_struct failed\n");
         goto fork_out;
+    }
     if (args->io_thread)
     {
         /*
@@ -405,13 +441,19 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     {
         if (p->real_cred->user != INIT_USER && !capable(CAP_SYS_RESOURCE) &&
             !capable(CAP_SYS_ADMIN))
+        {
+            pr_err("sus_copy_process: overlimit or not capable\n");
             goto bad_fork_free;
+        }
     }
     target->flags &= ~PF_NPROC_EXCEEDED;
 
     retval = copy_creds(p, clone_flags);
     if (retval < 0)
+    {
+        pr_err("sus_copy_process: copy_creds failed\n");
         goto bad_fork_free;
+    }
 
     /*
      * If multiple threads are within copy_process(), then this check
@@ -473,6 +515,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     {
         retval = PTR_ERR(p->mempolicy);
         p->mempolicy = NULL;
+        pr_err("sus_copy_process: failed to duplicate mem policy\n");
         goto bad_fork_cleanup_threadgroup_lock;
     }
 #endif
@@ -509,7 +552,10 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     /* Perform scheduler related setup. Assign this task to a CPU. */
     retval = sched_fork(clone_flags, p);
     if (retval)
+    {
+        pr_err("sus_copy_process: failed to setup scheduler\n");
         goto bad_fork_cleanup_policy;
+    }
 
     retval = perf_event_init_task(p, clone_flags);
     if (retval)
@@ -538,7 +584,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = copy_signal(clone_flags, p);
     if (retval)
         goto bad_fork_cleanup_sighand;
-    retval = copy_mm(clone_flags, p);
+    retval = sus_copy_mm(clone_flags, p, target);
     if (retval)
         goto bad_fork_cleanup_signal;
     retval = copy_namespaces(clone_flags, p);
@@ -693,7 +739,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      * Copy seccomp details explicitly here, in case they were changed
      * before holding sighand lock.
      */
-    copy_seccomp(p);
+    sus_copy_seccomp(p, target);
 
     rseq_fork(p, clone_flags);
 
@@ -705,11 +751,14 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     }
 
     /* Let kill terminate clone/fork in the middle */
+
+    /*
     if (fatal_signal_pending(target))
     {
         retval = -EINTR;
         goto bad_fork_cancel_cgroup;
     }
+    */
 
     /* past the last point of failure */
     if (pidfile)
@@ -949,7 +998,7 @@ static int recursive_fork(struct task_struct* task, void* data)
 
     if (0 == ctx->counter)
     {
-
+/*
         struct task_struct* previous_parent = forked_task->parent;
         struct task_struct* iter;
         struct list_head* pos;
@@ -978,6 +1027,7 @@ static int recursive_fork(struct task_struct* task, void* data)
         INIT_LIST_HEAD(&forked_task->sibling);
         list_add(&forked_task->sibling, &forked_task->parent->children);
         pr_info("rfork: lead process pointers adjusted\n");
+        */
     }
 
     // increment the counter
@@ -992,12 +1042,17 @@ static void suspend_task(struct task_struct* task)
     // activate_task and deactivate_task
     // TODO: Block CONT signals until we are ready to resume.
     kill_pid(task_pid(task), SIGSTOP, 1);
+    /* if (!freeze_task(task)) */
+    /* { */
+    /* pr_err("suspend_task: failed to freeze %d\n", task->tgid); */
+    /* } */
 }
 
 static void resume_task(struct task_struct* task)
 {
     // TODO: see nots on suspend_task
     kill_pid(task_pid(task), SIGCONT, 1);
+    /* __thaw_task(task); */
 }
 
 #define RECURSIVE_TASK_WALKER_CONTINUE 0
