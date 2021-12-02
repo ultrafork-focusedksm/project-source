@@ -15,15 +15,6 @@
 #define RECURSIVE_TASK_WALKER_CONTINUE 0
 #define RECURSIVE_TASK_WALKER_STOP 1
 
-/*
- * Yes, this is a nasty macro. It ensures we don't make any mistakes using the
- * current process in fork related calls instead of the target process. The goal
- * is to catch any incorrect usages at compile time.
- *
- * DO NOT include any headers _after_ this line, or all hell will break loose.
- */
-//#define current ERROR
-
 struct recursive_task_walker
 {
     /**
@@ -56,18 +47,20 @@ struct rfork_context
     u32 counter;
 };
 
+struct task_walk_context
+{
+    struct task_struct* task;
+    struct list_head list;
+};
+
 static int recursive_task_traverse(struct task_struct* task, void* data);
-static int recursive_fork(struct task_struct* task, void* data);
+static int recursive_fork(struct task_struct* task, u32 task_id);
 static int recursive_task_resume(struct task_struct* task, void* data);
 static void suspend_task(struct task_struct* task);
 static void resume_task(struct task_struct* task);
 
 static struct recursive_task_walker rtask_logger = {
     .task_handler = recursive_task_traverse,
-};
-
-static struct recursive_task_walker rfork_walker = {
-    .task_handler = recursive_fork,
 };
 
 static struct recursive_task_walker rfork_resume_walker = {
@@ -107,8 +100,17 @@ static void walk_task(struct task_struct* task, void* data,
 
 static int recursive_task_traverse(struct task_struct* task, void* data)
 {
+    struct task_walk_context* ctx = (struct task_walk_context*)data;
     pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
     suspend_task(task);
+
+    struct task_walk_context* node =
+        kmalloc(sizeof(struct task_walk_context), GFP_KERNEL);
+
+    node->task = task;
+    INIT_LIST_HEAD(&node->list);
+    list_add(&node->list, &ctx->list);
+
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
@@ -119,16 +121,39 @@ static int recursive_task_resume(struct task_struct* task, void* data)
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
-static int recursive_fork(struct task_struct* task, void* data)
+static int run_rfork(struct task_walk_context* ctx)
 {
-    struct rfork_context* ctx = (struct rfork_context*)data;
+    struct task_walk_context* next;
+    int err_count = 0;
+    u32 task_id = 0;
+
+    list_for_each_entry(next, &ctx->list, list)
+    {
+        if (likely(NULL != next->task))
+        {
+            pr_info("ufrk[%d]: visiting task pid=%d, tgid=%d\n", task_id,
+                    next->task->pid, next->task->tgid);
+            int ret_code = recursive_fork(next->task, task_id);
+            pr_info("ufrk[%d]: fork result %d\n", task_id, ret_code);
+            if (ret_code != RECURSIVE_TASK_WALKER_CONTINUE)
+            {
+                err_count++;
+            }
+        }
+        task_id++;
+    }
+    return err_count;
+}
+
+static int recursive_fork(struct task_struct* task, u32 task_id)
+{
     struct kernel_clone_args args = {.exit_signal = SIGCHLD};
 
     struct task_struct* forked_task = sus_kernel_clone(task, &args);
 
     if (forked_task == NULL)
     {
-        pr_err("ufrk: failed to fork task, counter: %d\n", ctx->counter);
+        pr_err("ufrk: failed to fork task, counter: %d\n", task_id);
         return -EACCES;
     }
 
@@ -137,7 +162,7 @@ static int recursive_fork(struct task_struct* task, void* data)
     pr_info("rfork forked: %s, pid=%d, tgid=%d\n", forked_task->comm,
             forked_task->pid, forked_task->tgid);
 
-    if (0 == ctx->counter)
+    if (0 == task_id)
     {
         /*
                 struct task_struct* previous_parent = forked_task->parent;
@@ -149,9 +174,9 @@ static int recursive_fork(struct task_struct* task, void* data)
 
                 // This means we are the parent process of the group
                 // we need to adjust this process (meaning the forked_task) to
-           have
+//           have
                 // the same parent has task. Eventually we will also have
-           namespacing
+ //          namespacing
                 // and like to consider as well.
                 forked_task->parent = ctx->original_grandparent;
 
@@ -173,8 +198,6 @@ static int recursive_fork(struct task_struct* task, void* data)
                 */
     }
 
-    // increment the counter
-    ctx->counter++;
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
@@ -293,16 +316,20 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
+    struct task_walk_context wctx;
+    wctx.task = NULL;
+    INIT_LIST_HEAD(&wctx.list);
     pr_info("ufrk: locking process group\n");
-    walk_task(parent, NULL, &rtask_logger);
+    walk_task(parent, &wctx, &rtask_logger);
 
     pr_info("ufrk: tasks locked, preparing fork\n");
-    struct rfork_context ctx = {
-        .forked_parent = NULL,
-        .original_grandparent = parent->parent,
-        .counter = 0,
-    };
-    walk_task(parent, &ctx, &rfork_walker);
+    /* struct rfork_context ctx = { */
+    /* .forked_parent = NULL, */
+    /* .original_grandparent = parent->parent, */
+    /* .counter = 0, */
+    /* }; */
+    /* walk_task(parent, &ctx, &rfork_walker); */
+    run_rfork(&wctx);
 
     pr_info("ufrk: resuming process group\n");
     walk_task(parent, NULL, &rfork_resume_walker);
