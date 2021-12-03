@@ -1,4 +1,5 @@
 #include "libsus.h"
+#include <blake2.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <semaphore.h>
@@ -16,11 +17,12 @@
 #define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
 
-void print_bytes(char* input, int size)
+void print_bytes(uint8_t* input, size_t size)
 {
-    for (int i = 0; i < size; i++)
+    size_t i;
+    for (i = 0; i < size; i++)
     {
-        printf("%c", input[i]);
+        printf("%02X", input[i]);
     }
     printf("\n");
 }
@@ -64,10 +66,9 @@ int child(int num)
         perror("addrs mmap failed");
         exit(EXIT_FAILURE);
     }
-    
 
     pids[(1 + num)] = getpid(); // offset by 1 for the children segment,
-                                      // then offset by num of the child
+                                // then offset by num of the child
     int child_offset;
     child_offset = PAGES_PER_PID * num; // offset for which child we are
     for (int i = 0; i < PAGES_PER_PID; i++)
@@ -122,7 +123,6 @@ int main(void)
         perror("addrs mmap failed");
         exit(EXIT_FAILURE);
     }
-    
 
     pids[0] = getpid();
     for (int i = 0; i < PAGES_PER_PID; i++)
@@ -147,12 +147,12 @@ int main(void)
     else
     { /* Code executed by parent */
         sleep(1);
-        char blake2b_out[BLAKE2B_OUTBYTES];
+        uint8_t blake2b_out[BLAKE2B_OUTBYTES];
         for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
         {
-            int res =
-                blake2b(blake2b_out, BLAKE2B_OUTBYTES, addrs[i], getpagesize(),
-                        NULL, 0); // todo: add key and keylen?
+            int res = blake2b(blake2b_out, addrs[i], NULL, BLAKE2B_OUTBYTES,
+                              getpagesize(),
+                              0); // todo: add key and keylen?
             if (res == -1)
             {
                 printf("blake2b hash error");

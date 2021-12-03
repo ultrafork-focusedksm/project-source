@@ -17,9 +17,9 @@
 #include <linux/pgtable.h>
 #include <linux/types.h>
 
-void kprint_bytes(char* input, int size)
+void kprint_bytes(u8* input, size_t size)
 {
-    int i;
+    size_t i;
     for (i = 0; i < size; i++)
     {
         printk(KERN_INFO "%02X", input[i]);
