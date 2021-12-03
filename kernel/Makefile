@@ -13,7 +13,7 @@ build:
 	$(MAKE) -C /lib/modules/$(KERNEL_VERSION)/build M=$(PWD) modules
 
 install:
-	@cp $(KO).ko /lib/modules/$(KERNEL_VERSION)
+	@cp sus.ko /lib/modules/$(KERNEL_VERSION)
 	depmod -a
 
 load:

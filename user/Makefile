@@ -1,5 +1,5 @@
-CFLAGS = -Wall -Werror -Wextra -Wpedantic -O2 -fPIC -MMD -DSUS_USERSPACE
-LDFLAGS = -lrt
+CFLAGS = -Wall -Werror -Wextra -Wpedantic -O2 -fPIC -MMD -DSUS_USERSPACE 
+LDFLAGS = -lrt -lb2
 
 OBJECT_DIR = obj
 INCLUDE =-I../kernel
