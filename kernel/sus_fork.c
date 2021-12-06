@@ -583,7 +583,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      * between here and cgroup_post_fork() if an organisation operation is in
      * progress.
      */
-    retval = cgroup_can_fork(p, args);
+    retval = sus_cgroup_can_fork(target, p, args);
     if (retval)
         goto bad_fork_put_pidfd;
 

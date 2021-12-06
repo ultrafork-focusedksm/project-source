@@ -62,6 +62,7 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
 
     node->task = task;
     INIT_LIST_HEAD(&node->list);
+    pr_info("ufrk: fork_list_add: %p\n", node);
     list_add_tail(&node->list, &ctx->list);
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
@@ -109,6 +110,9 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
         pr_err("ufrk: failed to fork task, counter: %d\n", task_id);
         return -EACCES;
     }
+
+    // TODO: race condition
+    suspend_task(forked_task);
 
     pr_info("rfork orig  : %s, pid=%d, tgid=%d\n", task->comm, task->pid,
             task->tgid);
@@ -161,17 +165,36 @@ static void suspend_task(struct task_struct* task)
     // activate_task and deactivate_task
     // TODO: Block CONT signals until we are ready to resume.
     kill_pid(task_pid(task), SIGSTOP, 1);
-    /* if (!freeze_task(task)) */
-    /* { */
-    /* pr_err("suspend_task: failed to freeze %d\n", task->tgid); */
-    /* } */
 }
 
 static void resume_task(struct task_struct* task)
 {
     // TODO: see nots on suspend_task
     kill_pid(task_pid(task), SIGCONT, 1);
-    /* __thaw_task(task); */
+    pr_info("ufrk: resume: %d, %d awake\n", task->pid, task->tgid);
+}
+
+static void task_list_cleanup(struct task_walk_context* ctx)
+{
+    struct list_head* next;
+    struct list_head* pos;
+
+    list_for_each_safe(pos, next, &ctx->list)
+    {
+        struct task_walk_context* entry =
+            list_entry(pos, struct task_walk_context, list);
+        if (likely(NULL != entry))
+        {
+            pr_info("ufrk: cleanup: visiting %d,%d, %p\n", entry->task->pid,
+                    entry->task->tgid, entry);
+            list_del(pos);
+            kfree(entry);
+        }
+        else
+        {
+            pr_err("ufrk: cleanup: ignoring NULL entry\n");
+        }
+    }
 }
 
 #define RECURSIVE_TASK_WALKER_CONTINUE 0
@@ -272,19 +295,19 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     struct task_walk_context wctx;
     wctx.task = NULL;
     INIT_LIST_HEAD(&wctx.list);
+
     pr_info("ufrk: locking process group\n");
     walk_task(parent, &wctx, &rtask_logger);
 
     pr_info("ufrk: tasks locked, preparing fork\n");
-    /* struct rfork_context ctx = { */
-    /* .forked_parent = NULL, */
-    /* .original_grandparent = parent->parent, */
-    /* .counter = 0, */
-    /* }; */
-    /* walk_task(parent, &ctx, &rfork_walker); */
     run_rfork(&wctx);
 
-    pr_info("ufrk: resuming process group\n");
+    pr_info("ufrk: releasing target process list from pid,tgid: %d,%d\n",
+            current->pid, current->tgid);
+    task_list_cleanup(&wctx);
+
+    pr_info("ufrk: resuming process group from pid,tgid: %d,%d\n", current->pid,
+            current->tgid);
     walk_task(parent, NULL, &rfork_resume_walker);
     return 0;
 }

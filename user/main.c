@@ -44,6 +44,7 @@ static void ufrk_fork_test(int fd)
         // IMPORTANT: we pass getpid() here, not the pid of the child.
         printf("Parent PID: %d, TID: %d\n", getpid(), gettid());
         sus_ufrk_fork(fd, getpid(), 0);
+        printf("Survived ufrk: %d,%d\n", getpid(), gettid());
         sleep(10);
     }
     else if (pid == 0)
@@ -51,6 +52,7 @@ static void ufrk_fork_test(int fd)
         // child process
         printf("Child PID: %d, TID: %d\n", getpid(), gettid());
         sleep(10);
+        printf("Child PID: %d, TID: %d\n", getpid(), gettid());
     }
     else
     {
