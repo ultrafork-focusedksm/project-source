@@ -24,7 +24,7 @@
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
 
-void print_bytes(uint8_t* input, size_t size)
+static void print_bytes(uint8_t* input, size_t size)
 {
     size_t i;
     for (i = 0; i < size; i++)
@@ -32,6 +32,11 @@ void print_bytes(uint8_t* input, size_t size)
         printf("%02X", input[i]);
     }
     printf("\n");
+}
+
+static inline void fail_fast()
+{
+    __asm__("ud2");
 }
 
 static void ufrk_fork_test(int fd)
@@ -44,6 +49,7 @@ static void ufrk_fork_test(int fd)
         // IMPORTANT: we pass getpid() here, not the pid of the child.
         printf("Parent PID: %d, TID: %d\n", getpid(), gettid());
         sus_ufrk_fork(fd, getpid(), 0);
+        //fail_fast();
         printf("Survived ufrk: %d,%d\n", getpid(), gettid());
         sleep(10);
     }

@@ -25,7 +25,6 @@
 #include <linux/security.h>
 #include <linux/stackleak.h>
 #include <linux/task_io_accounting_ops.h>
-#include <linux/taskstats_kern.h>
 #include <linux/tsacct_kern.h>
 #include <linux/tty.h>
 #include <linux/types.h>
@@ -124,12 +123,22 @@ static __always_inline void mm_clear_owner(struct mm_struct* mm,
 #endif
 }
 
+static void __sus_mmdrop(struct mm_struct* mm)
+{
+    mm_free_pgd(mm);
+    sus_destroy_context(mm);
+    sus_mmu_notifier_subscriptions_destroy(mm);
+    check_mm(mm);
+    put_user_ns(mm->user_ns);
+    free_mm(mm);
+}
+
 static void mmdrop_async_fn(struct work_struct* work)
 {
     struct mm_struct* mm;
 
     mm = container_of(work, struct mm_struct, async_put_work);
-    __mmdrop(mm);
+    __sus_mmdrop(mm);
 }
 
 static void mmdrop_async(struct mm_struct* mm)
@@ -139,6 +148,18 @@ static void mmdrop_async(struct mm_struct* mm)
         INIT_WORK(&mm->async_put_work, mmdrop_async_fn);
         schedule_work(&mm->async_put_work);
     }
+}
+
+static void free_signal_struct(struct signal_struct* sig)
+{
+    sus_taskstats_tgid_free(sig);
+    sched_autogroup_exit(sig);
+
+    if (sig->oom_mm)
+    {
+        mmdrop_async(sig->oom_mm);
+    }
+    signal_cache_free(sig);
 }
 
 static void __delayed_free_task(struct rcu_head* rhp)
@@ -486,7 +507,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     if (retval)
         goto bad_fork_cleanup_namespaces;
     retval =
-        copy_thread(clone_flags, args->stack, args->stack_size, p, args->tls);
+        sus_copy_thread(clone_flags, args->stack, args->stack_size, p, target, args->tls);
     if (retval)
         goto bad_fork_cleanup_io;
 

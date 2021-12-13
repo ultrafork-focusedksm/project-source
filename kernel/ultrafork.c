@@ -13,24 +13,6 @@
 #include <linux/sched.h>
 #include <linux/types.h>
 
-/**
- * A fork involves two processes, the parent and the child. A recursive
- * fork involves two groups of processes, the original group and the forked
- * group.
- */
-struct rfork_context
-{
-    /** The parent process of the original parent process. The process that
-     * spawned the parent process in the original fork group. */
-    struct task_struct* original_grandparent;
-    /** The top level forked process. All other forked processes are
-     * descendants of this process. */
-    struct task_struct* forked_parent;
-    /** Process group counter. Used to track how many processes we have already
-     * forked. */
-    u32 counter;
-};
-
 struct task_walk_context
 {
     struct task_struct* task;
