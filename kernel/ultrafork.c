@@ -94,7 +94,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
     }
 
     // TODO: race condition
-    suspend_task(forked_task);
+//    suspend_task(forked_task);
 
     pr_info("rfork orig  : %s, pid=%d, tgid=%d\n", task->comm, task->pid,
             task->tgid);
@@ -136,6 +136,8 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
                 pr_info("rfork: lead process pointers adjusted\n");
                 */
     }
+
+    wake_up_new_task(forked_task);
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }

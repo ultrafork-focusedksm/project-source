@@ -871,7 +871,7 @@ struct task_struct* sus_kernel_clone(struct task_struct* target,
         get_task_struct(p);
     }
 
-    wake_up_new_task(p);
+    //wake_up_new_task(p);
 
     if (unlikely(trace))
     {
