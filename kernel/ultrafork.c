@@ -13,17 +13,54 @@
 #include <linux/sched.h>
 #include <linux/types.h>
 
+#define SUS_TASK_COUNT 32
+
+/**
+ * Context structure for the reparenting operation.
+ */
+struct sus_task_tree
+{
+    struct task_struct* parent;
+    struct task_struct* value;
+    size_t child_index;
+    size_t sibling_index;
+    struct sus_task_tree* children[SUS_TASK_COUNT];
+    struct sus_task_tree* siblings[SUS_TASK_COUNT];
+};
+
+struct pid_translation
+{
+    pid_t old_pid;
+    pid_t new_pid;
+};
+
+struct pid_translation_table
+{
+    size_t length;
+    size_t cursor;
+    struct pid_translation translations[];
+};
+
 struct task_walk_context
 {
     struct task_struct* task;
+    struct sus_task_tree* node;
     struct list_head list;
+    size_t task_count;
+    struct pid_translation_table* tt;
+    pid_t parent;
+    pid_t forked_pid;
+    u8 is_topmost;
 };
 
 static int recursive_task_traverse(struct task_struct* task, void* data);
-static int recursive_fork(struct task_struct* task, u32 task_id);
+static int recursive_fork(struct task_struct* task, u32 task_id,
+                          struct task_walk_context*);
 static int recursive_task_resume(struct task_struct* task, void* data);
 static void suspend_task(struct task_struct* task);
 static void resume_task(struct task_struct* task);
+
+static struct sus_task_tree ufrk_tree;
 
 static struct recursive_task_walker rtask_logger = {
     .task_handler = recursive_task_traverse,
@@ -42,14 +79,36 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
     struct task_walk_context* node =
         kmalloc(sizeof(struct task_walk_context), GFP_KERNEL);
 
+    struct sus_task_tree* tree_node =
+        kmalloc(sizeof(struct sus_task_tree), GFP_KERNEL);
+    tree_node->value = task;
+    tree_node->child_index = 0;
+    tree_node->sibling_index = 0;
+
+    node->parent = task->real_parent->pid; // or parent
     node->task = task;
+    node->node = tree_node;
     INIT_LIST_HEAD(&node->list);
+
+    if (ctx->is_topmost == 0)
+    {
+        pr_info("ufrk: topmost\n");
+        node->is_topmost = 1;
+        ctx->is_topmost = 2;
+    }
+    ctx->task_count++;
+
     pr_info("ufrk: fork_list_add: %p\n", node);
     list_add_tail(&node->list, &ctx->list);
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
+/**
+ * Task walker for resuming sleeping processes after Ultrafork has run.
+ * @param task The task being visited currently.
+ * @param data Context data for traversing the tasks.
+ */
 static int recursive_task_resume(struct task_struct* task, void* data)
 {
     pr_info("rfork: resume: pid=%d, tgid=%d\n", task->pid, task->tgid);
@@ -62,6 +121,7 @@ static int run_rfork(struct task_walk_context* ctx)
     struct task_walk_context* next;
     int err_count = 0;
     u32 task_id = 0;
+    struct pid_translation_table* tt = ctx->tt;
 
     list_for_each_entry(next, &ctx->list, list)
     {
@@ -69,7 +129,7 @@ static int run_rfork(struct task_walk_context* ctx)
         {
             pr_info("ufrk[%d]: visiting task pid=%d, tgid=%d\n", task_id,
                     next->task->pid, next->task->tgid);
-            int ret_code = recursive_fork(next->task, task_id);
+            int ret_code = recursive_fork(next->task, task_id, next);
             pr_info("ufrk[%d]: fork result %d\n", task_id, ret_code);
             if (ret_code != RECURSIVE_TASK_WALKER_CONTINUE)
             {
@@ -81,7 +141,28 @@ static int run_rfork(struct task_walk_context* ctx)
     return err_count;
 }
 
-static int recursive_fork(struct task_struct* task, u32 task_id)
+/**
+ * Performs a translation from the original process ID to its forked process.
+ *
+ * @param tt  Translation table for process IDs.
+ * @param old_pid Process ID to translate
+ * @return the newly created process ID matching old_pid
+ */
+static pid_t translate_pid(struct pid_translation_table* tt, pid_t old_pid)
+{
+    size_t i;
+    for (i = 0; i < tt->cursor; i++)
+    {
+        if (old_pid == tt->translations[i].old_pid)
+        {
+            return tt->translations[i].new_pid;
+        }
+    }
+    return 0;
+}
+
+static int recursive_fork(struct task_struct* task, u32 task_id,
+                          struct task_walk_context* ctx)
 {
     struct kernel_clone_args args = {.exit_signal = SIGCHLD};
 
@@ -94,15 +175,19 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
     }
 
     // TODO: race condition
-//    suspend_task(forked_task);
+    //    suspend_task(forked_task);
 
     pr_info("rfork orig  : %s, pid=%d, tgid=%d\n", task->comm, task->pid,
             task->tgid);
     pr_info("rfork forked: %s, pid=%d, tgid=%d\n", forked_task->comm,
             forked_task->pid, forked_task->tgid);
 
-    if (0 == task_id)
+    ctx->forked_pid = forked_task->pid;
+
+    if (ctx->is_topmost == 1)
     {
+        pr_info("rfork: topmost process, adjusting parent\n");
+        forked_task->parent = task->parent;
         /*
                 struct task_struct* previous_parent = forked_task->parent;
                 struct task_struct* iter;
@@ -112,7 +197,8 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
                 pr_info("rfork: adjusting pointers of lead process\n");
 
                 // This means we are the parent process of the group
-                // we need to adjust this process (meaning the forked_task) to
+                // we need to adjust this process (meaning the forked_task)
+to
 //           have
                 // the same parent has task. Eventually we will also have
  //          namespacing
@@ -132,9 +218,16 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
 
                 // Add to the new parent's child list
                 INIT_LIST_HEAD(&forked_task->sibling);
-                list_add(&forked_task->sibling, &forked_task->parent->children);
-                pr_info("rfork: lead process pointers adjusted\n");
+                list_add(&forked_task->sibling,
+&forked_task->parent->children); pr_info("rfork: lead process pointers
+adjusted\n");
                 */
+    }
+    else
+    {
+        pr_info("rfork: not-topmost\n");
+        // TODO: tt lookup
+        forked_task->parent = task->parent->parent;
     }
 
     wake_up_new_task(forked_task);
@@ -144,16 +237,16 @@ static int recursive_fork(struct task_struct* task, u32 task_id)
 
 static void suspend_task(struct task_struct* task)
 {
-    // TODO: This does work, but its sort of gross. We shouldn't allow userspace
-    // to override us. Look into:
-    // activate_task and deactivate_task
+    // TODO: This does work, but its sort of gross. We shouldn't allow
+    // userspace to override us. Look into: activate_task and
+    // deactivate_task
     // TODO: Block CONT signals until we are ready to resume.
     kill_pid(task_pid(task), SIGSTOP, 1);
 }
 
 static void resume_task(struct task_struct* task)
 {
-    // TODO: see nots on suspend_task
+    // TODO: see notes on suspend_task
     kill_pid(task_pid(task), SIGCONT, 1);
     pr_info("ufrk: resume: %d, %d awake\n", task->pid, task->tgid);
 }
@@ -263,6 +356,7 @@ static struct task_struct* find_task_from_pid(unsigned long pid)
 int sus_mod_fork(unsigned long pid, unsigned char flags)
 {
     struct task_struct* parent;
+    struct task_walk_context wctx;
 
     if (pid < 1)
     {
@@ -276,12 +370,27 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
-    struct task_walk_context wctx;
     wctx.task = NULL;
+    wctx.parent = 0;
+    wctx.is_topmost = 0;
+    wctx.task_count = 0;
     INIT_LIST_HEAD(&wctx.list);
+
+    ufrk_tree.child_index = 0;
+    ufrk_tree.sibling_index = 0;
+    ufrk_tree.parent = parent->parent;
+    ufrk_tree.value = parent;
 
     pr_info("ufrk: locking process group\n");
     walk_task(parent, &wctx, &rtask_logger);
+
+    struct pid_translation_table* tt =
+        kmalloc(sizeof(struct pid_translation_table) +
+                    sizeof(struct pid_translation) * wctx.task_count,
+                GFP_KERNEL);
+    tt->length = wctx.task_count;
+    tt->cursor = 0;
+    wctx.tt = tt;
 
     pr_info("ufrk: tasks locked, preparing fork\n");
     run_rfork(&wctx);
@@ -293,5 +402,10 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     pr_info("ufrk: resuming process group from pid,tgid: %d,%d\n", current->pid,
             current->tgid);
     walk_task(parent, NULL, &rfork_resume_walker);
+
+    pr_info("ufrk: releasing translation table memory\n");
+    kfree(tt);
+
+    pr_info("ufrk: return to caller\n");
     return 0;
 }
