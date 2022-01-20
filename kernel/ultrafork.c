@@ -28,12 +28,18 @@ struct sus_task_tree
     struct sus_task_tree* siblings[SUS_TASK_COUNT];
 };
 
+/**
+ * Single entry mapping between original and forked process IDs.
+ */
 struct pid_translation
 {
     pid_t old_pid;
     pid_t new_pid;
 };
 
+/**
+ * Translation table for original and forked IDs.
+ */
 struct pid_translation_table
 {
     size_t length;
@@ -73,14 +79,16 @@ static struct recursive_task_walker rfork_resume_walker = {
 static int recursive_task_traverse(struct task_struct* task, void* data)
 {
     struct task_walk_context* ctx = (struct task_walk_context*)data;
-    pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
-    suspend_task(task);
 
     struct task_walk_context* node =
         kmalloc(sizeof(struct task_walk_context), GFP_KERNEL);
 
     struct sus_task_tree* tree_node =
         kmalloc(sizeof(struct sus_task_tree), GFP_KERNEL);
+
+    pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
+    suspend_task(task);
+
     tree_node->value = task;
     tree_node->child_index = 0;
     tree_node->sibling_index = 0;
@@ -127,9 +135,10 @@ static int run_rfork(struct task_walk_context* ctx)
     {
         if (likely(NULL != next->task))
         {
+            int ret_code;
             pr_info("ufrk[%d]: visiting task pid=%d, tgid=%d\n", task_id,
                     next->task->pid, next->task->tgid);
-            int ret_code = recursive_fork(next->task, task_id, next);
+            ret_code = recursive_fork(next->task, task_id, next);
             pr_info("ufrk[%d]: fork result %d\n", task_id, ret_code);
             if (ret_code != RECURSIVE_TASK_WALKER_CONTINUE)
             {
@@ -139,6 +148,12 @@ static int run_rfork(struct task_walk_context* ctx)
         task_id++;
     }
     return err_count;
+}
+
+static struct task_struct* find_task_from_pid(unsigned long pid)
+{
+    struct pid* pid_struct = find_get_pid(pid);
+    return get_pid_task(pid_struct, PIDTYPE_PID);
 }
 
 /**
@@ -182,12 +197,17 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
     pr_info("rfork forked: %s, pid=%d, tgid=%d\n", forked_task->comm,
             forked_task->pid, forked_task->tgid);
 
+    // TODO: unused:
     ctx->forked_pid = forked_task->pid;
+
+    ctx->tt->translations[ctx->tt->cursor].old_pid = task->pid;
+    ctx->tt->translations[ctx->tt->cursor].new_pid = forked_task->pid;
 
     if (ctx->is_topmost == 1)
     {
         pr_info("rfork: topmost process, adjusting parent\n");
         forked_task->parent = task->parent;
+
         /*
                 struct task_struct* previous_parent = forked_task->parent;
                 struct task_struct* iter;
@@ -225,9 +245,10 @@ adjusted\n");
     }
     else
     {
+        pid_t new_pid;
         pr_info("rfork: not-topmost\n");
-        // TODO: tt lookup
-        forked_task->parent = task->parent->parent;
+        new_pid = translate_pid(ctx->tt, task->parent->parent->pid);
+        forked_task->parent = find_task_from_pid(new_pid);
     }
 
     wake_up_new_task(forked_task);
@@ -235,18 +256,30 @@ adjusted\n");
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
 
+/**
+ * Suspend the given task by sending SIGSTOP. This is a somewhat foolish method,
+ * as it can be reversed by SIGCONT sent by userspace, which would cause a nasty
+ * race condition if delivered while ultrafork is working on the process.
+ *
+ * TODO: This does work, but its sort of gross. We shouldn't allow
+ * userspace to override us. Look into: activate_task and deactivate_task
+ *
+ * TODO: Block CONT signals until we are ready to resume.
+ *
+ * @param task The process to stop.
+ */
 static void suspend_task(struct task_struct* task)
 {
-    // TODO: This does work, but its sort of gross. We shouldn't allow
-    // userspace to override us. Look into: activate_task and
-    // deactivate_task
-    // TODO: Block CONT signals until we are ready to resume.
     kill_pid(task_pid(task), SIGSTOP, 1);
 }
 
+/**
+ * Resumes the given task using SIGCONT. See notes on suspend_task.
+ *
+ * @param task The process to resume.
+ */
 static void resume_task(struct task_struct* task)
 {
-    // TODO: see notes on suspend_task
     kill_pid(task_pid(task), SIGCONT, 1);
     pr_info("ufrk: resume: %d, %d awake\n", task->pid, task->tgid);
 }
@@ -274,89 +307,13 @@ static void task_list_cleanup(struct task_walk_context* ctx)
     }
 }
 
-#define RECURSIVE_TASK_WALKER_CONTINUE 0
-#define RECURSIVE_TASK_WALKER_STOP 1
-
-struct recursive_task_walker
-{
-    /**
-     * Define a visitor for each task.
-     *
-     * @param task The task being visited
-     * @param data Private data passed into the walker for use in these
-     * functions.
-     * @return RECURSIVE_TASK_WALKER_CONTINUE to keep traversing,
-     * RECURSIVE_TASK_WALKER_STOP to stop traversing.
-     */
-    int (*task_handler)(struct task_struct* task, void* data);
-};
-
-static int recursive_task_traverse(struct task_struct* task, void* data);
-
-static struct recursive_task_walker rtask_logger = {
-    .task_handler = recursive_task_traverse,
-};
-
-/**
- * Recursive task walker. Given a task, visit it, and all its decendants.
- * @param task The parent task structure
- * @param data Private data pointer for the handlers to use.
- * @param walker The walker context
- */
-static void walk_task(struct task_struct* task, void* data,
-                      struct recursive_task_walker* walker)
-{
-    struct list_head* list;
-
-    int status = walker->task_handler(task, data);
-    if (status == RECURSIVE_TASK_WALKER_CONTINUE)
-    {
-        list_for_each(list, &task->children)
-        {
-            struct task_struct* child =
-                list_entry(list, struct task_struct, sibling);
-
-            status = walker->task_handler(child, data);
-            if (status == RECURSIVE_TASK_WALKER_STOP)
-            {
-                return;
-            }
-
-            walk_task(child, data, walker);
-        }
-    }
-}
-
-static int recursive_task_traverse(struct task_struct* task, void* data)
-{
-    pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
-    return RECURSIVE_TASK_WALKER_CONTINUE;
-}
-
-static void suspend_task(struct task_struct* task)
-{
-    // TODO: Does this actually work, its a bit hacky. also look at
-    // activate_task and deactivate_task
-    // TODO: Block CONT signals until we are ready to resume.
-    kill_pid(task_pid(task), SIGSTOP, 1);
-}
-
-static void resume_task(struct task_struct* task)
-{
-    // TODO: see nots on suspend_task
-    kill_pid(task_pid(task), SIGCONT, 1);
-}
-
-static struct task_struct* find_task_from_pid(unsigned long pid)
-{
-    struct pid* pid_struct = find_get_pid(pid);
-    return get_pid_task(pid_struct, PIDTYPE_PID);
-}
-
 int sus_mod_fork(unsigned long pid, unsigned char flags)
 {
     struct task_struct* parent;
-    struct task_walk_context wctx;
+    struct pid_translation_table* tt;
+    struct task_walk_context wctx = {
+        .task = NULL, .parent = 0, .is_topmost = 0, .task_count = 0};
+    INIT_LIST_HEAD(&wctx.list);
 
     if (pid < 1)
     {
@@ -370,12 +327,6 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
-    wctx.task = NULL;
-    wctx.parent = 0;
-    wctx.is_topmost = 0;
-    wctx.task_count = 0;
-    INIT_LIST_HEAD(&wctx.list);
-
     ufrk_tree.child_index = 0;
     ufrk_tree.sibling_index = 0;
     ufrk_tree.parent = parent->parent;
@@ -384,10 +335,9 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     pr_info("ufrk: locking process group\n");
     walk_task(parent, &wctx, &rtask_logger);
 
-    struct pid_translation_table* tt =
-        kmalloc(sizeof(struct pid_translation_table) +
-                    sizeof(struct pid_translation) * wctx.task_count,
-                GFP_KERNEL);
+    tt = kmalloc(sizeof(struct pid_translation_table) +
+                     sizeof(struct pid_translation) * wctx.task_count,
+                 GFP_KERNEL);
     tt->length = wctx.task_count;
     tt->cursor = 0;
     wctx.tt = tt;
