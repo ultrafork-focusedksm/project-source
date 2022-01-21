@@ -13,21 +13,6 @@
 #include <linux/sched.h>
 #include <linux/types.h>
 
-#define SUS_TASK_COUNT 32
-
-/**
- * Context structure for the reparenting operation.
- */
-struct sus_task_tree
-{
-    struct task_struct* parent;
-    struct task_struct* value;
-    size_t child_index;
-    size_t sibling_index;
-    struct sus_task_tree* children[SUS_TASK_COUNT];
-    struct sus_task_tree* siblings[SUS_TASK_COUNT];
-};
-
 /**
  * Single entry mapping between original and forked process IDs.
  */
@@ -47,15 +32,20 @@ struct pid_translation_table
     struct pid_translation translations[];
 };
 
+/**
+ * Data available for each task during Ultrafork.
+ */
 struct task_walk_context
 {
     struct task_struct* task;
-    struct sus_task_tree* node;
     struct list_head list;
     size_t task_count;
+    /** Pointer to the single translation table instance. */
     struct pid_translation_table* tt;
     pid_t parent;
     pid_t forked_pid;
+    /** Flag indicating this processes status as the 'root' process in the
+     * Ultrafork group.*/
     u8 is_topmost;
 };
 
@@ -65,8 +55,6 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 static int recursive_task_resume(struct task_struct* task, void* data);
 static void suspend_task(struct task_struct* task);
 static void resume_task(struct task_struct* task);
-
-static struct sus_task_tree ufrk_tree;
 
 static struct recursive_task_walker rtask_logger = {
     .task_handler = recursive_task_traverse,
@@ -83,19 +71,11 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
     struct task_walk_context* node =
         kmalloc(sizeof(struct task_walk_context), GFP_KERNEL);
 
-    struct sus_task_tree* tree_node =
-        kmalloc(sizeof(struct sus_task_tree), GFP_KERNEL);
-
     pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
     suspend_task(task);
 
-    tree_node->value = task;
-    tree_node->child_index = 0;
-    tree_node->sibling_index = 0;
-
     node->parent = task->real_parent->pid; // or parent
     node->task = task;
-    node->node = tree_node;
     INIT_LIST_HEAD(&node->list);
 
     if (ctx->is_topmost == 0)
@@ -246,9 +226,56 @@ adjusted\n");
     else
     {
         pid_t new_pid;
+        struct list_head* pos;
+        struct list_head* q;
+        struct task_struct* iter;
+
         pr_info("rfork: not-topmost\n");
         new_pid = translate_pid(ctx->tt, task->parent->parent->pid);
         forked_task->parent = find_task_from_pid(new_pid);
+
+        // remove forked process from children
+        list_for_each_safe(pos, q, &task->parent->children)
+        {
+            iter = list_entry(pos, struct task_struct, children);
+            if (likely(NULL != iter))
+            {
+                if (forked_task->pid == iter->pid)
+                {
+                    pr_debug(
+                        "ufrk: removing forked pid %d from children of %d\n",
+                        forked_task->pid, task->parent->pid);
+                    list_del(pos);
+                }
+            }
+        }
+
+        // remove forked process from siblings
+        // TODO: candidate for optimziation: this can be done in one step for
+        // all processes instead of per-process.
+        list_for_each_safe(pos, q, &task->siblings)
+        {
+            struct list_head* sibling_pos;
+            struct list_head* sibling_q;
+            struct task_struct* sibling_iter;
+            iter = list_entry(pos, struct task_struct, siblings);
+
+            if (likeyly(NULL != iter))
+            {
+                list_for_each_safe(sibling_pos, sibling_q, iter->siblings)
+                {
+                    sibling_iter =
+                        list_entry(sibling_pos, struct task_struct, siblings);
+                    if (NULL != sibling_iter &&
+                        sibling_iter->pid == forked_task->pid)
+                    {
+                        pr_debug("ufrk: removing forked pid %d from siblings "
+                                 "of %d\n",
+                                 forked_task->pid, task->pid);
+                    }
+                }
+            }
+        }
     }
 
     wake_up_new_task(forked_task);
@@ -295,8 +322,8 @@ static void task_list_cleanup(struct task_walk_context* ctx)
             list_entry(pos, struct task_walk_context, list);
         if (likely(NULL != entry))
         {
-            pr_info("ufrk: cleanup: visiting %d,%d, %p\n", entry->task->pid,
-                    entry->task->tgid, entry);
+            pr_debug("ufrk: cleanup: visiting %d,%d, %p\n", entry->task->pid,
+                     entry->task->tgid, entry);
             list_del(pos);
             kfree(entry);
         }
@@ -327,11 +354,6 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
-    ufrk_tree.child_index = 0;
-    ufrk_tree.sibling_index = 0;
-    ufrk_tree.parent = parent->parent;
-    ufrk_tree.value = parent;
-
     pr_info("ufrk: locking process group\n");
     walk_task(parent, &wctx, &rtask_logger);
 
@@ -345,15 +367,15 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     pr_info("ufrk: tasks locked, preparing fork\n");
     run_rfork(&wctx);
 
-    pr_info("ufrk: releasing target process list from pid,tgid: %d,%d\n",
-            current->pid, current->tgid);
+    pr_debug("ufrk: releasing target process list from pid,tgid: %d,%d\n",
+             current->pid, current->tgid);
     task_list_cleanup(&wctx);
 
     pr_info("ufrk: resuming process group from pid,tgid: %d,%d\n", current->pid,
             current->tgid);
     walk_task(parent, NULL, &rfork_resume_walker);
 
-    pr_info("ufrk: releasing translation table memory\n");
+    pr_debug("ufrk: releasing translation table memory\n");
     kfree(tt);
 
     pr_info("ufrk: return to caller\n");
