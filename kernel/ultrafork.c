@@ -253,19 +253,19 @@ adjusted\n");
         // remove forked process from siblings
         // TODO: candidate for optimziation: this can be done in one step for
         // all processes instead of per-process.
-        list_for_each_safe(pos, q, &task->siblings)
+        list_for_each_safe(pos, q, &task->sibling)
         {
             struct list_head* sibling_pos;
             struct list_head* sibling_q;
             struct task_struct* sibling_iter;
-            iter = list_entry(pos, struct task_struct, siblings);
+            iter = list_entry(pos, struct task_struct, sibling);
 
-            if (likeyly(NULL != iter))
+            if (likely(NULL != iter))
             {
-                list_for_each_safe(sibling_pos, sibling_q, iter->siblings)
+                list_for_each_safe(sibling_pos, sibling_q, &iter->sibling)
                 {
                     sibling_iter =
-                        list_entry(sibling_pos, struct task_struct, siblings);
+                        list_entry(sibling_pos, struct task_struct, sibling);
                     if (NULL != sibling_iter &&
                         sibling_iter->pid == forked_task->pid)
                     {
