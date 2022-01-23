@@ -55,6 +55,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 static int recursive_task_resume(struct task_struct* task, void* data);
 static void suspend_task(struct task_struct* task);
 static void resume_task(struct task_struct* task);
+static int rebuild_sibling_callback(struct task_struct* task, void* data);
 
 static struct recursive_task_walker rtask_logger = {
     .task_handler = recursive_task_traverse,
@@ -62,6 +63,10 @@ static struct recursive_task_walker rtask_logger = {
 
 static struct recursive_task_walker rfork_resume_walker = {
     .task_handler = recursive_task_resume,
+};
+
+static struct recursive_task_walker rtask_sibling_rebuilder = {
+    .task_handler = rebuild_sibling_callback,
 };
 
 static int recursive_task_traverse(struct task_struct* task, void* data)
@@ -156,6 +161,95 @@ static pid_t translate_pid(struct pid_translation_table* tt, pid_t old_pid)
     return 0;
 }
 
+/**
+ * Traverse the siblings of the given process, and remove the forked_task from
+ * the siblings list of each sibling of task.
+ *
+ * TODO: candidate for optimziation: this can be done in one step for
+ * all processes instead of per-process.
+ *
+ * @param task The original task to traverse the siblings of.
+ * @param forked_task The forked task that should be removed from the sibling
+ * lists.
+ */
+static void remove_from_siblings(struct task_struct* task,
+                                 struct task_struct* forked_task)
+{
+    struct list_head* pos;
+    struct list_head* q;
+    struct task_struct* iter;
+    list_for_each_safe(pos, q, &task->sibling)
+    {
+        struct list_head* sibling_pos;
+        struct list_head* sibling_q;
+        struct task_struct* sibling_iter;
+        iter = list_entry(pos, struct task_struct, sibling);
+
+        if (likely(NULL != iter))
+        {
+            list_for_each_safe(sibling_pos, sibling_q, &iter->sibling)
+            {
+                sibling_iter =
+                    list_entry(sibling_pos, struct task_struct, sibling);
+                if (NULL != sibling_iter &&
+                    sibling_iter->pid == forked_task->pid)
+                {
+                    pr_debug("ufrk: removing forked pid %d from siblings "
+                             "of %d\n",
+                             forked_task->pid, task->pid);
+                    list_del(sibling_pos);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Pass over all processes decending from the original target process
+ * (excluding the newly cloned processes). Use the pid_translation_table to
+ * lookup the corresponding cloned PIDs and update the siblings and children
+ * lists for consistency.
+ *
+ * @param task Task currently being visited
+ * @param data Context.
+ * @return return code, used to control visiting.
+ */
+static int rebuild_sibling_callback(struct task_struct* task, void* data)
+{
+    pid_t cloned_task_pid;
+    pid_t cloned_iter_pid;
+    struct list_head* pos;
+    struct list_head* q;
+    struct task_struct* iter;
+    struct task_struct* cloned_task;
+    struct task_struct* cloned_iter_task;
+    struct pid_translation_table* tt = (struct pid_translation_table*)data;
+
+    cloned_task_pid = translate_pid(tt, task->pid);
+    cloned_task = find_task_from_pid(cloned_task_pid);
+
+    // TODO: doesn't need to be safe?
+    list_for_each_safe(pos, q, &task->sibling)
+    {
+        iter = list_entry(pos, struct task_struct, sibling);
+        if (likely(NULL != iter))
+        {
+            pr_debug("ufrk: resibling: [%d] visitin pid %d\n", task->pid,
+                     iter->pid);
+
+            cloned_iter_pid = translate_pid(tt, iter->pid);
+            if (likely(0 != cloned_iter_pid))
+            {
+                cloned_iter_task = find_task_from_pid(cloned_iter_pid);
+                INIT_LIST_HEAD(&cloned_iter_task->sibling);
+                list_add(&cloned_iter_task->sibling, &cloned_task->sibling);
+            }
+        }
+    }
+
+    return RECURSIVE_TASK_WALKER_CONTINUE;
+}
+
 static int recursive_fork(struct task_struct* task, u32 task_id,
                           struct task_walk_context* ctx)
 {
@@ -187,6 +281,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
     {
         pr_info("rfork: topmost process, adjusting parent\n");
         forked_task->parent = task->parent;
+        remove_from_siblings(task, forked_task);
 
         /*
                 struct task_struct* previous_parent = forked_task->parent;
@@ -250,32 +345,7 @@ adjusted\n");
             }
         }
 
-        // remove forked process from siblings
-        // TODO: candidate for optimziation: this can be done in one step for
-        // all processes instead of per-process.
-        list_for_each_safe(pos, q, &task->sibling)
-        {
-            struct list_head* sibling_pos;
-            struct list_head* sibling_q;
-            struct task_struct* sibling_iter;
-            iter = list_entry(pos, struct task_struct, sibling);
-
-            if (likely(NULL != iter))
-            {
-                list_for_each_safe(sibling_pos, sibling_q, &iter->sibling)
-                {
-                    sibling_iter =
-                        list_entry(sibling_pos, struct task_struct, sibling);
-                    if (NULL != sibling_iter &&
-                        sibling_iter->pid == forked_task->pid)
-                    {
-                        pr_debug("ufrk: removing forked pid %d from siblings "
-                                 "of %d\n",
-                                 forked_task->pid, task->pid);
-                    }
-                }
-            }
-        }
+        remove_from_siblings(task, forked_task);
     }
 
     wake_up_new_task(forked_task);
