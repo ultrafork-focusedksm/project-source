@@ -2,7 +2,7 @@
 #include "sus.h"
 #include <asm/types.h>
 #include <crypto/internal/hash.h>
-#include <crypto/sha3.h>
+#include <crypto/blake2b.h>
 #include <linux/crypto.h>
 #include <linux/err.h>
 #include <linux/errno.h>
@@ -146,11 +146,16 @@ static void combine(sus_metadata_collection_t list1,
     {
         list_for_each_entry(curr_list2, list2, list)
         {
-            if (memcmp(curr_list1->checksum, curr_list2->checksum, sizeof(curr_list1->checksum))) {
+            if (memcmp(curr_list1->checksum, curr_list2->checksum, BLAKE2B_512_HASH_SIZE) == 0) {
                 struct page *curr_page1 = curr_list1->page_metadata.page;
                 struct page *curr_page2 = curr_list2->page_metadata.page;
 
                 void* addr = kmap_atomic(curr_page1);
+                if (IS_ERR(addr)) {
+                    kunmap_atomic(addr);
+                    pr_err("FKSM_ERROR: In combine(), kmap_atomic returned error");
+                    return;
+                }
                 struct vm_area_struct *curr_vma = find_vma(curr_list1->page_metadata.mm, (unsigned long int) addr);
                 replace_page(curr_vma, curr_page1, curr_page2, *(curr_list1->page_metadata.pte));
                 kunmap_atomic(addr);
