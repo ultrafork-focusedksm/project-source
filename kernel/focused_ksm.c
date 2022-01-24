@@ -22,6 +22,16 @@
 #include <linux/types.h>
 #include <stdbool.h>
 
+void kprint_bytes(u8* input, size_t size)
+{
+    size_t i;
+    for (i = 0; i < size; i++)
+    {
+        printk(KERN_INFO "%02X", input[i]);
+    }
+    printk(KERN_INFO "\n");
+}
+
 static struct task_struct* find_task_from_pid(unsigned long pid)
 {
     struct pid* pid_struct = find_get_pid(pid);
@@ -32,6 +42,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                      unsigned int len, u8* out)
 {
     int err;
+    pr_info("FKSM_INFO: HASH FUNCTION MAP ATOMIC");
     void* addr = kmap_atomic(page); // address to page
     if (IS_ERR(addr))
     {
@@ -40,16 +51,23 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                "pointer");
         return -1;
     }
+    pr_info("FKSM_INFO: HASHING");
+
     // kmap atomic critical section, accessing page transparently? Need to
     // verify ignore huge pages
     err = crypto_shash_digest(desc, addr, len, out);
+    pr_info("FKSM_INFO: HASHED");
+
     kunmap_atomic(addr);
+    pr_info("FKSM_INFO: HASH END UNMAP ATOMIC");
+
     if (err)
     {
         pr_err("FKSM_ERROR: in fksm_hash() helper, digest function returned "
                "error");
         return err;
     }
+    kprint_bytes(out, BLAKE2B_512_HASH_SIZE);
     return 0;
 }
 
@@ -63,22 +81,35 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
      */
 
     struct page* current_page = pte_page(*pte); // page from page table entry
+    if (IS_ERR(current_page))
+    {
+        pr_err(
+            "FKSM_ERROR: in callback, pte_page lookup returned error pointer");
+    }
+    pr_info("FKSM_INFO: page* %p", current_page);
+    pr_info("FKSM_INFO: page flags %ld", current_page->flags);
+    pr_info("FKSM_INFO: pre-page check");
 
     // TODO: find out if THP will be walked through or only pointed to the head
     // TODO: compound pages walking through tails too?
     if (PageAnon(current_page) || PageCompound(current_page) ||
         PageTransHuge(current_page))
     {
+        pr_info("FKSM_INFO: POST-PAGE CHECK");
+
         struct crypto_shash* tfm; // hash transform object
         struct shash_desc* desc;
         struct metadata_collection* new_meta;
 
-        tfm = crypto_alloc_shash("sha3-512", 0, 0); // init transform object
+
+        tfm = crypto_alloc_shash("blake2b-512", 0, 0); // init transform object
         if (IS_ERR(tfm))
         {
             pr_err("FKSM_ERROR: in callback, crypto tfm object identified as "
                    "error pointer");
         }
+        pr_info("FKSM_INFO: TFM OBJECT MADE");
+
         desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm),
                        GFP_KERNEL); // init descriptor object
         if (IS_ERR(desc))
@@ -86,14 +117,20 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
             pr_err("FKSM_ERROR: in callback, crypto desc object identified as "
                    "error pointer");
         }
+        pr_info("FKSM_INFO: DESC OBJECT MADE");
+
         desc->tfm = tfm; // set descriptor transform object for our hashing call
+
+        pr_info("FKSM_INFO: DESC TFM SET");
 
         new_meta = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
         if (IS_ERR(new_meta))
         {
             pr_err("FKSM_ERROR: in callback, new_meta not allocated");
         }
+        pr_info("FKSM_INFO: PRE-LIST INIT");
         INIT_LIST_HEAD(&new_meta->list); // initialize list
+        pr_info("FKSM_INFO: POST-LIST INIT");
 
         if (fksm_hash(desc, current_page, PAGE_SIZE, new_meta->checksum) != 0)
         {
