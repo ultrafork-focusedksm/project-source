@@ -123,6 +123,7 @@ static int run_rfork(struct task_walk_context* ctx)
             int ret_code;
             pr_info("ufrk[%d]: visiting task pid=%d, tgid=%d\n", task_id,
                     next->task->pid, next->task->tgid);
+            next->tt = tt;
             ret_code = recursive_fork(next->task, task_id, next);
             pr_info("ufrk[%d]: fork result %d\n", task_id, ret_code);
             if (ret_code != RECURSIVE_TASK_WALKER_CONTINUE)
@@ -229,20 +230,45 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
     cloned_task = find_task_from_pid(cloned_task_pid);
 
     // TODO: doesn't need to be safe?
+    // TODO: common macro for sibling and child rewrites.
     list_for_each_safe(pos, q, &task->sibling)
     {
         iter = list_entry(pos, struct task_struct, sibling);
         if (likely(NULL != iter))
         {
-            pr_debug("ufrk: resibling: [%d] visitin pid %d\n", task->pid,
+            pr_debug("ufrk: resibling: [%d] visiting pid %d\n", task->pid,
                      iter->pid);
 
             cloned_iter_pid = translate_pid(tt, iter->pid);
             if (likely(0 != cloned_iter_pid))
             {
                 cloned_iter_task = find_task_from_pid(cloned_iter_pid);
+
+                pr_debug("ufrk: resibling: [%d] adding pid %d to siblings\n",
+                         task->pid, cloned_iter_pid);
                 INIT_LIST_HEAD(&cloned_iter_task->sibling);
                 list_add(&cloned_iter_task->sibling, &cloned_task->sibling);
+            }
+        }
+    }
+
+    list_for_each_safe(pos, q, &task->children)
+    {
+        iter = list_entry(pos, struct task_struct, children);
+
+        if (likely(NULL != iter))
+        {
+            pr_debug("ufrk: rechild: [%d] visiting pid %d\n", task->pid,
+                     iter->pid);
+
+            cloned_iter_pid = translate_pid(tt, iter->pid);
+            if (likely(0 != cloned_iter_pid))
+            {
+                cloned_iter_task = find_task_from_pid(cloned_iter_pid);
+                pr_debug("ufrk: resibling: [%d] adding pid %d to children\n",
+                         task->pid, cloned_iter_pid);
+                INIT_LIST_HEAD(&cloned_iter_task->children);
+                list_add(&cloned_iter_task->children, &cloned_task->children);
             }
         }
     }
@@ -282,41 +308,6 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
         pr_info("rfork: topmost process, adjusting parent\n");
         forked_task->parent = task->parent;
         remove_from_siblings(task, forked_task);
-
-        /*
-                struct task_struct* previous_parent = forked_task->parent;
-                struct task_struct* iter;
-                struct list_head* pos;
-                struct list_head* q;
-
-                pr_info("rfork: adjusting pointers of lead process\n");
-
-                // This means we are the parent process of the group
-                // we need to adjust this process (meaning the forked_task)
-to
-//           have
-                // the same parent has task. Eventually we will also have
- //          namespacing
-                // and like to consider as well.
-                forked_task->parent = ctx->original_grandparent;
-
-                // remove forked_task its previous parent's child list.
-                list_for_each_safe(pos, q, &previous_parent->children)
-                {
-                    iter = list_entry(pos, struct task_struct, children);
-                    if (iter->pid == forked_task->pid &&
-                        iter->tgid == forked_task->tgid)
-                    {
-                        list_del(pos);
-                    }
-                }
-
-                // Add to the new parent's child list
-                INIT_LIST_HEAD(&forked_task->sibling);
-                list_add(&forked_task->sibling,
-&forked_task->parent->children); pr_info("rfork: lead process pointers
-adjusted\n");
-                */
     }
     else
     {
@@ -444,6 +435,8 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     pr_info("ufrk: resuming process group from pid,tgid: %d,%d\n", current->pid,
             current->tgid);
     walk_task(parent, NULL, &rfork_resume_walker);
+
+    walk_task(parent, tt, &rtask_sibling_rebuilder);
 
     pr_debug("ufrk: releasing translation table memory\n");
     kfree(tt);
