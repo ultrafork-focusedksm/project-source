@@ -1,26 +1,25 @@
 #include "focused_ksm.h"
 #include "sus.h"
 #include <asm/types.h>
-#include <crypto/internal/hash.h>
 #include <crypto/blake2b.h>
+#include <crypto/internal/hash.h>
 #include <linux/crypto.h>
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
+#include <linux/ksm.h>
 #include <linux/list.h>
 #include <linux/mm.h>
+#include <linux/mm_types.h>
+#include <linux/mmu_notifier.h>
 #include <linux/module.h>
 #include <linux/page-flags.h>
 #include <linux/pagemap.h>
 #include <linux/pagewalk.h>
 #include <linux/pgtable.h>
-#include <linux/types.h>
-#include <linux/list.h>
 #include <linux/rmap.h>
-#include <linux/ksm.h>
-#include <linux/mm_types.h>
-#include <linux/mmu_notifier.h>
+#include <linux/types.h>
 #include <stdbool.h>
 
 static struct task_struct* find_task_from_pid(unsigned long pid)
@@ -38,7 +37,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
     {
         kunmap_atomic(addr);
         pr_err("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
-                "pointer");
+               "pointer");
         return -1;
     }
     // kmap atomic critical section, accessing page transparently? Need to
@@ -146,20 +145,25 @@ static void combine(sus_metadata_collection_t list1,
     {
         list_for_each_entry(curr_list2, list2, list)
         {
-            if (memcmp(curr_list1->checksum, curr_list2->checksum, BLAKE2B_512_HASH_SIZE) == 0) {
-                struct page *curr_page1 = curr_list1->page_metadata.page;
-                struct page *curr_page2 = curr_list2->page_metadata.page;
+            if (memcmp(curr_list1->checksum, curr_list2->checksum,
+                       BLAKE2B_512_HASH_SIZE) == 0)
+            {
+                struct page* curr_page1 = curr_list1->page_metadata.page;
+                struct page* curr_page2 = curr_list2->page_metadata.page;
 
                 void* addr = kmap_atomic(curr_page1);
-                if (IS_ERR(addr)) {
+                if (IS_ERR(addr))
+                {
                     kunmap_atomic(addr);
-                    pr_err("FKSM_ERROR: In combine(), kmap_atomic returned error");
+                    pr_err(
+                        "FKSM_ERROR: In combine(), kmap_atomic returned error");
                     return;
                 }
-                struct vm_area_struct *curr_vma = find_vma(curr_list1->page_metadata.mm, (unsigned long int) addr);
-                replace_page(curr_vma, curr_page1, curr_page2, *(curr_list1->page_metadata.pte));
+                struct vm_area_struct* curr_vma = find_vma(
+                    curr_list1->page_metadata.mm, (unsigned long int)addr);
+                replace_page(curr_vma, curr_page1, curr_page2,
+                             *(curr_list1->page_metadata.pte));
                 kunmap_atomic(addr);
-
             }
         }
     }
