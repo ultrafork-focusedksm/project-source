@@ -240,32 +240,7 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
     cloned_task_pid = translate_pid(tt, task->pid);
     cloned_task = find_task_from_pid(cloned_task_pid);
 
-    pr_info("ufrk: resibling: %d -> %d\n", task->pid, cloned_task->pid);
-
-    // TODO: doesn't need to be safe?
-    // TODO: common macro for sibling and child rewrites.
-    /*
-    list_for_each_safe(pos, q, &task->sibling)
-    {
-        iter = list_entry(pos, struct task_struct, sibling);
-        if (likely(NULL != iter))
-        {
-            pr_info("ufrk: resibling: [%d] visiting pid %d\n", task->pid,
-                    iter->pid);
-
-            cloned_iter_pid = translate_pid(tt, iter->pid);
-            if (likely(0 != cloned_iter_pid))
-            {
-                cloned_iter_task = find_task_from_pid(cloned_iter_pid);
-
-                pr_info("ufrk: resibling: [%d] adding pid %d to siblings\n",
-                        task->pid, cloned_iter_pid);
-                INIT_LIST_HEAD(&cloned_iter_task->sibling);
-                list_add(&cloned_iter_task->sibling, &cloned_task->sibling);
-            }
-        }
-    }
-    */
+    /* pr_info("ufrk: resibling: %d -> %d\n", task->pid, cloned_task->pid); */
 
     /*
     pr_info("ufrk: resibling: adding %d as a sibling of %d\n", cloned_task->pid,
@@ -298,7 +273,7 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
                 if (likely(NULL != cloned_iter_task))
                 {
                     pr_info("ufrk: resibling: [%d] adding pid %d to children\n",
-                            task->pid, cloned_iter_pid);
+                            cloned_task->pid, cloned_iter_pid);
                     goto add_child;
                 }
             }
@@ -321,6 +296,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
     struct task_struct* iter;
     struct task_struct* forked_task;
     struct list_head* pos;
+    struct list_head* q;
     struct kernel_clone_args args = {.exit_signal = SIGCHLD};
 
     list_for_each_entry(iter, &task->children, sibling)
@@ -362,28 +338,27 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
     if (ctx->is_topmost == 1)
     {
-        pr_info("rfork: topmost process, adjusting parent\n");
+        pr_info("rfork: topmost process, %d reparented to %d\n",
+                forked_task->pid, task->parent->pid);
         forked_task->parent = task->parent;
         forked_task->real_parent = task->real_parent;
     }
     else
     {
-        pid_t new_pid;
+        pid_t new_pid = translate_pid(ctx->tt, task->parent->pid);
+        pr_info("rfork: not-topmost, %d reparented to %d\n",
+                forked_task->parent->pid, new_pid);
 
-        pr_info("rfork: not-topmost\n");
-        new_pid = translate_pid(ctx->tt, task->parent->parent->pid);
         forked_task->parent = find_task_from_pid(new_pid);
         forked_task->real_parent = forked_task->parent;
 
         //   remove_from_siblings(task, forked_task);
     }
 
-    struct list_head* q;
-
     // remove forked process from children
     list_for_each_safe(pos, q, &task->children)
     {
-        iter = list_entry(pos, struct task_struct, children);
+        iter = list_entry(pos, struct task_struct, sibling);
         if (likely(NULL != iter))
         {
             pr_info("rfork: del_child[%d]: checking %d\n", task->pid,
@@ -391,7 +366,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
             if (forked_task->pid == iter->pid)
             {
                 pr_info("ufrk: removing forked pid %d from children of %d\n",
-                        forked_task->pid, task->parent->pid);
+                        forked_task->pid, task->pid);
                 list_del_init(pos);
             }
         }
