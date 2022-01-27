@@ -240,21 +240,15 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
     cloned_task_pid = translate_pid(tt, task->pid);
     cloned_task = find_task_from_pid(cloned_task_pid);
 
-    /* pr_info("ufrk: resibling: %d -> %d\n", task->pid, cloned_task->pid); */
-
-    /*
-    pr_info("ufrk: resibling: adding %d as a sibling of %d\n", cloned_task->pid,
-            task->pid);
-    INIT_LIST_HEAD(&task->sibling);
-    list_add(&task->sibling, &cloned_task->sibling);
-    */
-
-    /*
     pr_info("ufrk: resibling: adding %d as a sibling of %d\n", task->pid,
             cloned_task->pid);
+    INIT_LIST_HEAD(&task->sibling);
+    list_add(&task->sibling, &cloned_task->parent->children);
+
+    pr_info("ufrk: resibling: adding %d as a sibling of %d\n", cloned_task->pid,
+            task->pid);
     INIT_LIST_HEAD(&cloned_task->sibling);
-    list_add(&cloned_task->sibling, &task->sibling);
-    */
+    list_add(&cloned_task->sibling, &task->parent->children);
 
     list_for_each_safe(pos, q, &task->children)
     {
@@ -282,12 +276,26 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
     goto wake_up;
 
 add_child:
-    INIT_LIST_HEAD(&cloned_iter_task->children);
-    list_add(&cloned_iter_task->children, &cloned_task->children);
+    if (unlikely(NULL == cloned_iter_task))
+    {
+        pr_err("ufrk: resibling: NULL cloned_iter_task\n");
+    }
+    else if (unlikely(NULL == cloned_task))
+    {
+        pr_err("ufrk: resibling: NULL cloned_task\n");
+    }
+    else
+    {
+        pr_info("ufrk: resibling: ready to add child\n");
+        //        INIT_LIST_HEAD(&cloned_iter_task->sibling);
+        pr_info("ufrk: resibling: initialized new child element\n");
+        list_add(&cloned_iter_task->sibling, &cloned_task->children);
+        pr_info("ufrk: resibling: child added\n");
+    }
 
 wake_up:
     wake_up_new_task(cloned_task);
-    return RECURSIVE_TASK_WALKER_CONTINUE;
+    return RECURSIVE_TASK_WALKER_STOP;
 }
 
 static int recursive_fork(struct task_struct* task, u32 task_id,
@@ -342,6 +350,10 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
                 forked_task->pid, task->parent->pid);
         forked_task->parent = task->parent;
         forked_task->real_parent = task->real_parent;
+        forked_task->group_leader = task->group_leader;
+
+        INIT_LIST_HEAD(&forked_task->children);
+        list_add(&forked_task->children, &task->parent->children);
     }
     else
     {
