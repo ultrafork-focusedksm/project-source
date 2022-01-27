@@ -240,6 +240,7 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
     cloned_task_pid = translate_pid(tt, task->pid);
     cloned_task = find_task_from_pid(cloned_task_pid);
 
+    /*
     pr_info("ufrk: resibling: adding %d as a sibling of %d\n", task->pid,
             cloned_task->pid);
     INIT_LIST_HEAD(&task->sibling);
@@ -249,6 +250,7 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
             task->pid);
     INIT_LIST_HEAD(&cloned_task->sibling);
     list_add(&cloned_task->sibling, &task->parent->children);
+    */
 
     list_for_each_safe(pos, q, &task->children)
     {
@@ -268,32 +270,15 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
                 {
                     pr_info("ufrk: resibling: [%d] adding pid %d to children\n",
                             cloned_task->pid, cloned_iter_pid);
-                    goto add_child;
+                    INIT_LIST_HEAD(&cloned_iter_task->children);
+                    list_add(&cloned_iter_task->children,
+                             &cloned_task->children);
+                    pr_info("ufrk: resibling: child added\n");
                 }
             }
         }
     }
-    goto wake_up;
 
-add_child:
-    if (unlikely(NULL == cloned_iter_task))
-    {
-        pr_err("ufrk: resibling: NULL cloned_iter_task\n");
-    }
-    else if (unlikely(NULL == cloned_task))
-    {
-        pr_err("ufrk: resibling: NULL cloned_task\n");
-    }
-    else
-    {
-        pr_info("ufrk: resibling: ready to add child\n");
-        //        INIT_LIST_HEAD(&cloned_iter_task->sibling);
-        pr_info("ufrk: resibling: initialized new child element\n");
-        list_add(&cloned_iter_task->sibling, &cloned_task->children);
-        pr_info("ufrk: resibling: child added\n");
-    }
-
-wake_up:
     wake_up_new_task(cloned_task);
     return RECURSIVE_TASK_WALKER_STOP;
 }
