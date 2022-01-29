@@ -163,60 +163,6 @@ static pid_t translate_pid(struct pid_translation_table* tt, pid_t old_pid)
 }
 
 /**
- * Traverse the siblings of the given process, and remove the forked_task from
- * the siblings list of each sibling of task.
- *
- * TODO: candidate for optimziation: this can be done in one step for
- * all processes instead of per-process.
- *
- * @param task The original task to traverse the siblings of.
- * @param forked_task The forked task that should be removed from the sibling
- * lists.
- */
-static void remove_from_siblings(struct task_struct* task,
-                                 struct task_struct* forked_task)
-{
-    struct list_head* pos;
-    struct list_head* q;
-    struct task_struct* iter;
-    pid_t new_pid;
-
-    pr_info("ufrk: remove siblings of %d\n", task->pid);
-
-    list_for_each_safe(pos, q, &task->sibling)
-    {
-        struct list_head* sibling_pos;
-        struct list_head* sibling_q;
-        struct task_struct* sibling_iter;
-        iter = list_entry(pos, struct task_struct, sibling);
-
-        if (likely(NULL != iter && 0 != iter->pid))
-        {
-            pr_info("ufrk: remove_siblings: %d is a sibling of %d\n", iter->pid,
-                    task->pid);
-            list_del_init(pos);
-            /*
-            list_for_each_safe(sibling_pos, sibling_q, &iter->sibling)
-            {
-                sibling_iter =
-                    list_entry(sibling_pos, struct task_struct, sibling);
-                pr_info("ufrk: %d is a sibling of %d\n", sibling_iter->pid,
-                        iter->pid);
-                if (NULL != sibling_iter &&
-                    sibling_iter->pid == forked_task->pid)
-                {
-                    pr_info("ufrk: removing forked pid %d from siblings "
-                            "of %d\n",
-                            forked_task->pid, task->pid);
-                    list_del(sibling_pos);
-                }
-            }
-            */
-        }
-    }
-}
-
-/**
  * Pass over all processes decending from the original target process
  * (excluding the newly cloned processes). Use the pid_translation_table to
  * lookup the corresponding cloned PIDs and update the siblings and children
@@ -240,24 +186,11 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
     cloned_task_pid = translate_pid(tt, task->pid);
     cloned_task = find_task_from_pid(cloned_task_pid);
 
-    /* pr_info("ufrk: resibling: adding %d as a sibling of %d\n", task->pid, */
-            /* cloned_task->pid); */
-    /* INIT_LIST_HEAD(&task->sibling); */
-    /* list_add(&task->sibling, &cloned_task->parent->children); */
-
-    /* pr_info("ufrk: resibling: adding %d as a sibling of %d\n", cloned_task->pid, */
-            /* task->pid); */
-    /* INIT_LIST_HEAD(&cloned_task->sibling); */
-    /* list_add(&cloned_task->sibling, &task->parent->children); */
-    
-
     list_for_each_safe(pos, q, &task->children)
     {
         iter = list_entry(pos, struct task_struct, sibling);
-
         if (likely(NULL != iter))
         {
-            pid_t new_pid;
             pr_info("ufrk: rechild: [%d] visiting pid %d\n", task->pid,
                     iter->pid);
 
@@ -283,7 +216,7 @@ static int rebuild_sibling_callback(struct task_struct* task, void* data)
         iter = list_entry(pos, struct task_struct, sibling);
         if (likely(NULL != iter))
         {
-            if (0 == iter->pid || NULL != translate_pid(tt, iter->pid))
+            if (0 == iter->pid || 0 != translate_pid(tt, iter->pid))
             {
                 pr_info("ufkr: resibling: removing child %d from %d\n",
                         iter->pid, cloned_task->pid);
