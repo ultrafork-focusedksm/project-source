@@ -494,7 +494,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = copy_sighand(clone_flags, p);
     if (retval)
         goto bad_fork_cleanup_fs;
-    retval = copy_signal(clone_flags, p);
+    retval = sus_copy_signal(clone_flags, p, target);
     if (retval)
         goto bad_fork_cleanup_sighand;
     retval = sus_copy_mm(clone_flags, p, target);
