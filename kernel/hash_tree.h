@@ -1,16 +1,17 @@
 #include <stdlib.h>
+#include <linux/types.h>
 #include <linux/rbtree.h>
-//#include <crypto/internal/hash.h>
-//#include <crypto/blake2b.h>
-//#include <crypto/sha3.h>
+#include <crypto/internal/hash.h>
+#include <crypto/blake2b.h>
+#include <linux/xxhash.h>
 
 struct first_level_bucket {
-    int byte;
+    u8 byte;
     struct second_level_container* ptr;
 };
 
 struct second_level_container {
-    struct second_level_bucket* buckets; //TODO: Ask if this is legal
+    struct second_level_bucket* buckets;
     struct second_level_container* next;
 };
 
@@ -26,10 +27,10 @@ struct red_black_node {
 
 struct first_level_bucket* hash_tree_init();
 
-void hash_tree_add(struct first_level_bucket* map, int xxHash, int blake2b);
+void hash_tree_add(struct first_level_bucket* map, u8* xxhash, u8* blake2b);
 
-int hash_tree_lookup(struct first_level_bucket* map, int xxHash, int blake2b);
+int hash_tree_lookup(struct first_level_bucket* map, u8* xxhash, u8** blake2b);
 
 struct red_black_node rb_search(struct rb_root *root, int value);
 
-int red_black_insert(struct rb_root *root, struct red_black_node* node_to_add);
+int rb_insert(struct rb_root *root, struct red_black_node* node_to_add);
