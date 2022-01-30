@@ -1,4 +1,4 @@
-#include <stdlib.h>
+
 #include <linux/types.h>
 #include <linux/rbtree.h>
 #include <crypto/internal/hash.h>
@@ -16,18 +16,18 @@ struct second_level_container {
 };
 
 struct second_level_bucket {
-    int value;
+    u8 value;
     struct rb_root tree;
 };
 
 struct red_black_node {
-    struct rb_node next_node;
-    int value;
+    struct rb_node node;
+    u8 value;
 };
 
-struct first_level_bucket* hash_tree_init();
+struct first_level_bucket* first_level_init(void);
 
-void hash_tree_add(struct first_level_bucket* map, u8* xxhash, u8* blake2b);
+int hash_tree_add(struct first_level_bucket* map, u8* xxhash, u8* blake2b);
 
 int hash_tree_lookup(struct first_level_bucket* map, u8* xxhash, u8** blake2b);
 
