@@ -1,4 +1,4 @@
-CFLAGS = -Wall -Werror -Wextra -Wpedantic -O2 -fPIC -MMD -DSUS_USERSPACE 
+CFLAGS = -Wall -Werror -Wextra -Wpedantic -O2 -fPIC -MMD -DSUS_USERSPACE -g
 LDFLAGS = -lrt -lb2
 
 OBJECT_DIR = obj

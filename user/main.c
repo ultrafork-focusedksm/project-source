@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -68,16 +69,19 @@ int child(int num)
     }
 
     pids[(1 + num)] = getpid(); // offset by 1 for the children segment,
-                                // then offset by num of the child
+                                // then offset by num of the current child
     int child_offset;
-    child_offset = PAGES_PER_PID * num; // offset for which child we are
+    child_offset = PAGES_PER_PID *
+                   (num + 1); // offset in addrs based on which child we are
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
-        addrs[(child_offset + PAGES_PER_PID + i)] = malloc(getpagesize());
+        addrs[(child_offset + i)] = aligned_alloc(getpagesize(), getpagesize());
+        memset(addrs[(child_offset + i)], 0xaa, getpagesize());
     }
 
-    sleep(60);
-
+    sleep(1);
+    free(pids);
+    free(addrs);
     return 0;
 }
 
@@ -127,7 +131,8 @@ int main(void)
     pids[0] = getpid();
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
-        addrs[i] = malloc(sizeof(char) * getpagesize());
+        addrs[i] = aligned_alloc(getpagesize(), getpagesize());
+        memset(addrs[i], 0xaa, getpagesize());
     }
 
     pid_t cpid;
@@ -146,21 +151,24 @@ int main(void)
     }
     else
     { /* Code executed by parent */
-        sleep(1);
+        sleep(5);
         uint8_t blake2b_out[BLAKE2B_OUTBYTES];
         for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
         {
+            // print_bytes(addrs[i], getpagesize());
             int res = blake2b(blake2b_out, addrs[i], NULL, BLAKE2B_OUTBYTES,
-                              getpagesize(),
-                              0); // todo: add key and keylen?
+                              getpagesize(), 0);
             if (res == -1)
             {
                 printf("blake2b hash error");
             }
             else
             {
+                printf("hash for #%d: %p \n", i, addrs[i]);
                 print_bytes(blake2b_out, BLAKE2B_OUTBYTES);
             }
+            memset(blake2b_out, 0, BLAKE2B_OUTBYTES);
+            printf("\n");
         }
     }
 
