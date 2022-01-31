@@ -6,6 +6,7 @@
 #include <semaphore.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +52,7 @@ static void* thread_function(void* arg)
     return NULL;
 }
 
-static void ufrk_fork_test(int fd)
+static void ufrk_fork_test(int fd, bool threading)
 {
     pid_t pid = fork();
 
@@ -64,14 +65,20 @@ static void ufrk_fork_test(int fd)
         // fail_fast();
         printf("Survived ufrk: %d,%d\n", getpid(), gettid());
 
-        pthread_create(&threads[0], NULL, thread_function, NULL);
+        if (threading)
+        {
+            pthread_create(&threads[0], NULL, thread_function, NULL);
+        }
         sleep(10);
     }
     else if (pid == 0)
     {
         // child process
         printf("Child PID: %d, TID: %d\n", getpid(), gettid());
-        pthread_create(&threads[1], NULL, thread_function, NULL);
+        if (threading)
+        {
+            pthread_create(&threads[1], NULL, thread_function, NULL);
+        }
         sleep(10);
         printf("Child PID: %d, TID: %d\n", getpid(), gettid());
     }
@@ -232,13 +239,18 @@ static int hash_tree(int fd)
 int main(int argc, char* argv[])
 {
     int c;
+    bool ufrk = false;
+    bool threading = false;
     int fd = sus_open();
-    while ((c = getopt(argc, argv, "uhfa")) != -1)
+    while ((c = getopt(argc, argv, "uhfat")) != -1)
     {
         switch (c)
         {
         case 'u':
-            ufrk_fork_test(fd);
+            ufrk = true;
+            break;
+        case 't':
+            threading = true;
             break;
         case 'f':
             fksm_parent(fd);
@@ -251,6 +263,10 @@ int main(int argc, char* argv[])
             print_help(argv[0]);
             break;
         }
+    }
+    if (ufrk)
+    {
+        ufrk_fork_test(fd, threading);
     }
 
     return sus_close(fd);
