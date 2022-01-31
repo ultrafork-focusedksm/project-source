@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include <semaphore.h>
 #include <stdint.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,8 @@
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
 
+static pthread_t threads[2];
+
 static void print_bytes(uint8_t* input, size_t size)
 {
     size_t i;
@@ -39,6 +42,15 @@ static inline void fail_fast()
     __asm__("ud2");
 }
 
+static void* thread_function(void* arg)
+{
+    (void)arg;
+    printf("started %d\n", gettid());
+    sleep(10);
+    printf("done %d\n", gettid());
+    return NULL;
+}
+
 static void ufrk_fork_test(int fd)
 {
     pid_t pid = fork();
@@ -49,14 +61,17 @@ static void ufrk_fork_test(int fd)
         // IMPORTANT: we pass getpid() here, not the pid of the child.
         printf("Parent PID: %d, TID: %d\n", getpid(), gettid());
         sus_ufrk_fork(fd, getpid(), 0);
-        //fail_fast();
+        // fail_fast();
         printf("Survived ufrk: %d,%d\n", getpid(), gettid());
+
+        pthread_create(&threads[0], NULL, thread_function, NULL);
         sleep(10);
     }
     else if (pid == 0)
     {
         // child process
         printf("Child PID: %d, TID: %d\n", getpid(), gettid());
+        pthread_create(&threads[1], NULL, thread_function, NULL);
         sleep(10);
         printf("Child PID: %d, TID: %d\n", getpid(), gettid());
     }
