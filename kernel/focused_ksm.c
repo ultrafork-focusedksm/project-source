@@ -46,7 +46,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                      unsigned int len, u8* out)
 {
     int err;
-    pr_info("FKSM_INFO: HASH FUNCTION MAP ATOMIC");
+    pr_info("FKSM: HASH FUNCTION MAP ATOMIC");
     u8* addr = kmap_atomic(page); // address to page
     if (IS_ERR(addr))
     {
@@ -55,7 +55,7 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                "pointer");
         return -1;
     }
-    pr_info("FKSM_INFO: HASHING");
+    pr_info("FKSM: HASHING");
 
     // kmap atomic critical section, accessing page transparently? Need to
     // verify ignore huge pages
@@ -66,10 +66,10 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
     pr_debug("END_PRINT_ADDR\n");
 
     err = crypto_shash_digest(desc, addr, len, out);
-    pr_info("FKSM_INFO: HASHED");
+    pr_info("FKSM: HASHED");
 
     kunmap_atomic(addr);
-    pr_info("FKSM_INFO: HASH END UNMAP ATOMIC");
+    pr_info("FKSM: HASH END UNMAP ATOMIC");
 
     if (err)
     {
