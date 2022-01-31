@@ -8,14 +8,19 @@
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/kernel.h>
+#include <linux/ksm.h>
 #include <linux/list.h>
 #include <linux/mm.h>
+#include <linux/mm_types.h>
+#include <linux/mmu_notifier.h>
 #include <linux/module.h>
 #include <linux/page-flags.h>
 #include <linux/pagemap.h>
 #include <linux/pagewalk.h>
 #include <linux/pgtable.h>
+#include <linux/rmap.h>
 #include <linux/types.h>
+#include <stdbool.h>
 
 void kprint_bytes(u8* input, size_t size)
 {
@@ -188,7 +193,38 @@ static sus_metadata_collection_t traverse(unsigned long pid)
 static void combine(sus_metadata_collection_t list1,
                     sus_metadata_collection_t list2)
 {
-    return;
+
+    struct metadata_collection* curr_list1;
+    struct metadata_collection* curr_list2;
+
+    list_for_each_entry(curr_list1, list1, list)
+    {
+        list_for_each_entry(curr_list2, list2, list)
+        {
+            if (memcmp(curr_list1->checksum, curr_list2->checksum,
+                       BLAKE2B_512_HASH_SIZE) == 0)
+            {
+                struct page* curr_page1 = curr_list1->page_metadata.page;
+                struct page* curr_page2 = curr_list2->page_metadata.page;
+
+                void* addr = kmap_atomic(curr_page1);
+                if (IS_ERR(addr))
+                {
+                    kunmap_atomic(addr);
+                    pr_err(
+                        "FKSM_ERROR: In combine(), kmap_atomic returned error");
+                    return;
+                }
+                struct vm_area_struct* curr_vma = find_vma(
+                    curr_list1->page_metadata.mm, (unsigned long int)addr);
+                replace_page(curr_vma, curr_page1, curr_page2,
+                             *(curr_list1->page_metadata.pte));
+                kunmap_atomic(addr);
+            }
+        }
+    }
+    kfree(list1);
+    kfree(list2);
 }
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2)
