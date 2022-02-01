@@ -19,6 +19,7 @@
 #include <linux/sched.h>
 #include <linux/sched/autogroup.h>
 #include <linux/sched/cputime.h>
+#include <linux/sched/mm.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #include <linux/sched/task_stack.h>
@@ -506,8 +507,8 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = sus_copy_io(clone_flags, p);
     if (retval)
         goto bad_fork_cleanup_namespaces;
-    retval =
-        sus_copy_thread(clone_flags, args->stack, args->stack_size, p, target, args->tls);
+    retval = sus_copy_thread(clone_flags, args->stack, args->stack_size, p,
+                             target, args->tls);
     if (retval)
         goto bad_fork_cleanup_io;
 
@@ -730,7 +731,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     fork_write_unlock_irq();
 
     proc_fork_connector(p);
-    sched_post_fork(p);
+    sched_post_fork(p, args);
     cgroup_post_fork(p, args);
     perf_event_fork(p);
 
@@ -871,7 +872,7 @@ struct task_struct* sus_kernel_clone(struct task_struct* target,
         get_task_struct(p);
     }
 
-    //wake_up_new_task(p);
+    // wake_up_new_task(p);
 
     if (unlikely(trace))
     {

@@ -11,6 +11,7 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/sched.h>
+#include <linux/slab.h>
 #include <linux/types.h>
 
 /**
@@ -346,7 +347,13 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
  */
 static void suspend_task(struct task_struct* task)
 {
+    struct task_struct* t;
     kill_pid(task_pid(task), SIGSTOP, 1);
+    for_each_thread(task, t)
+    {
+        pr_info("ufrk: suspend_task: Process %d has thread %d\n", task->pid,
+                task_pid_vnr(t));
+    }
 }
 
 /**
