@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -17,6 +18,8 @@
 #define PAGES_PER_PID 5
 #define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
+#define ADDR_SEGMENT_SIZE (8*NUM_PIDS*PAGES_PER_PID) //8 byte pointers for each segment
+#define PIDS_SEGMENT_SIZE (4*NUM_PIDS)//4 bytes for 32 bit int * number of pids
 
 void print_bytes(uint8_t* input, size_t size)
 {
@@ -28,45 +31,8 @@ void print_bytes(uint8_t* input, size_t size)
     printf("\n");
 }
 
-int child(int num)
+int child(int num, void** addrs, int* pids)
 {
-    int pids_fd = shm_open(FKSM_PIDS, O_RDWR, S_IRUSR | S_IWUSR);
-    if (pids_fd == -1)
-    {
-        perror("pids shm_open failed");
-        exit(EXIT_FAILURE);
-    }
-    if (ftruncate(pids_fd, sizeof(void*) * NUM_PIDS) == -1)
-    {
-        perror("pids ftruncate");
-        exit(EXIT_FAILURE);
-    }
-    pid_t* pids = mmap(NULL, sizeof(pid_t) * NUM_PIDS, PROT_READ | PROT_WRITE,
-                       MAP_SHARED, pids_fd, 0);
-    if (pids == MAP_FAILED)
-    {
-        perror("pids mmap failed");
-        exit(EXIT_FAILURE);
-    }
-
-    int addrs_fd = shm_open(FKSM_ADDR, O_RDWR, S_IRUSR | S_IWUSR);
-    if (addrs_fd == -1)
-    {
-        perror("addr shm_open failed");
-        exit(EXIT_FAILURE);
-    }
-    if (ftruncate(addrs_fd, sizeof(void*) * PAGES_PER_PID * NUM_PIDS) == -1)
-    {
-        perror("addrs ftruncate");
-        exit(EXIT_FAILURE);
-    }
-    void** addrs = mmap(NULL, sizeof(void*) * PAGES_PER_PID * NUM_PIDS,
-                        PROT_READ | PROT_WRITE, MAP_SHARED, addrs_fd, 0);
-    if (addrs == MAP_FAILED)
-    {
-        perror("addrs mmap failed");
-        exit(EXIT_FAILURE);
-    }
 
     pids[(1 + num)] = getpid(); // offset by 1 for the children segment,
                                 // then offset by num of the current child
@@ -80,53 +46,22 @@ int child(int num)
     }
 
     sleep(1);
-    free(pids);
-    free(addrs);
     return 0;
 }
 
 int main(void)
 {
-    // TODO: call ioctl and print hashes
+    int addr_segment_id;
+    addr_segment_id = shmget(IPC_PRIVATE, ADDR_SEGMENT_SIZE,
+                             IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+    // todo: check if shmget worked
+    void** addrs = shmat(addr_segment_id, 0, 0);
 
-    int pids_fd =
-        shm_open(FKSM_PIDS, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
-    if (pids_fd == -1)
-    {
-        perror("pids shm_open failed");
-        exit(EXIT_FAILURE);
-    }
-    if (ftruncate(pids_fd, sizeof(void*) * NUM_PIDS) == -1)
-    {
-        perror("pids ftruncate");
-        exit(EXIT_FAILURE);
-    }
-    pid_t* pids = mmap(NULL, sizeof(pid_t) * NUM_PIDS, PROT_READ | PROT_WRITE,
-                       MAP_SHARED, pids_fd, 0);
-    if (pids == MAP_FAILED)
-    {
-        perror("pids mmap failed");
-        exit(EXIT_FAILURE);
-    }
-    int addrs_fd =
-        shm_open(FKSM_ADDR, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
-    if (addrs_fd == -1)
-    {
-        perror("addr shm_open failed");
-        exit(EXIT_FAILURE);
-    }
-    if (ftruncate(addrs_fd, sizeof(void*) * PAGES_PER_PID * NUM_PIDS) == -1)
-    {
-        perror("addrs ftruncate");
-        exit(EXIT_FAILURE);
-    }
-    void** addrs = mmap(NULL, sizeof(void*) * PAGES_PER_PID * NUM_PIDS,
-                        PROT_READ | PROT_WRITE, MAP_SHARED, addrs_fd, 0);
-    if (addrs == MAP_FAILED)
-    {
-        perror("addrs mmap failed");
-        exit(EXIT_FAILURE);
-    }
+    int pids_segment_id;
+    pids_segment_id = shmget(IPC_PRIVATE, PIDS_SEGMENT_SIZE,
+                             IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+    // todo: check if shmget worked
+    int* pids = shmat(pids_segment_id, 0, 0);
 
     pids[0] = getpid();
     for (int i = 0; i < PAGES_PER_PID; i++)
@@ -146,7 +81,7 @@ int main(void)
     if (cpid == 0)
     { /* Code executed by child */
         printf("%d | %d \n", getppid(), getpid());
-        child(0);
+        child(0, addrs, pids);
         return 0;
     }
     else
@@ -194,14 +129,16 @@ int main(void)
     printf("Closed ioctl\n");
 
 release:
-    free(pids);
+    shmdt(pids);
+    shmctl(pids_segment_id, IPC_RMID, 0);
     for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
     {
         free(addrs[i]);
     }
-    free(addrs);
-    shm_unlink(FKSM_ADDR);
-    shm_unlink(FKSM_PIDS);
+    shmdt(addrs);
+    shmctl(addr_segment_id, IPC_RMID, 0);
+    // shm_unlink(FKSM_ADDR);
+    // shm_unlink(FKSM_PIDS);
 
     return 0;
 }

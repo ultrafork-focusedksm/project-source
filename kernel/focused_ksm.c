@@ -97,9 +97,9 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         pr_err(
             "FKSM_ERROR: in callback, pte_page lookup returned error pointer");
     }
-    pr_info("FKSM: page* %p", current_page);
-    pr_info("FKSM: page flags %ld", current_page->flags);
-    pr_info("FKSM: pre-page check");
+    pr_debug("FKSM: page* %p", current_page);
+    pr_debug("FKSM: page flags %ld", current_page->flags);
+    pr_debug("FKSM: pre-page check");
 
     // TODO: find out if THP will be walked through or only pointed to the head
     // TODO: compound pages walking through tails too?
@@ -163,7 +163,7 @@ static struct mm_walk_ops task_walk_ops = {.pte_entry = callback_pte_range};
 
 static sus_metadata_collection_t traverse(unsigned long pid)
 {
-    pr_info("FKSM: FIND TASK");
+    pr_info("FKSM: FIND TASK FOR %lu", pid);
     struct task_struct* task = find_task_from_pid(pid); // get task struct
     if (IS_ERR(task))
     {
@@ -183,10 +183,12 @@ static sus_metadata_collection_t traverse(unsigned long pid)
 
     pr_info("FKSM: READ LOCK FOR TRAVERSE");
     mmap_read_lock(task->active_mm);
+    pr_info("FKSM: WALK START");
     walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops,
                     &metadata_list);
+    pr_info("FKSM: WALK END, UNLOCKING");
     mmap_read_unlock(task->active_mm);
-
+    pr_info("FKSM: UNLOCKED");
     return metadata_list;
 }
 
