@@ -1,3 +1,11 @@
+/*
+ * sus_fork.c: The functions in this file make up the clone implementation for
+ * Ultrafork that could be extracted from the kernel easily. Part of the
+ * implementation exists as patches to the kernel source. The implementation is
+ * split like this because it is much easier to develop in a module than by
+ * directly patching the kernel. The bulk of the code is in this file, so
+ * hopefully future modifications will be made easier by this design decision.
+ */
 #include <linux/anon_inodes.h>
 #include <linux/audit.h>
 #include <linux/cgroup.h>
@@ -492,7 +500,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = copy_fs(clone_flags, p);
     if (retval)
         goto bad_fork_cleanup_files;
-    retval = copy_sighand(clone_flags, p);
+    retval = sus_copy_sighand(clone_flags, p, target);
     if (retval)
         goto bad_fork_cleanup_fs;
     retval = sus_copy_signal(clone_flags, p, target);

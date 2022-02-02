@@ -3,10 +3,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <semaphore.h>
-#include <stdint.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -239,8 +239,11 @@ static int hash_tree(int fd)
 int main(int argc, char* argv[])
 {
     int c;
+    volatile pid_t original = getpid();
     bool ufrk = false;
     bool threading = false;
+    bool fksm = false;
+    bool hash_tree_test = false;
     int fd = sus_open();
     while ((c = getopt(argc, argv, "uhfat")) != -1)
     {
@@ -253,10 +256,10 @@ int main(int argc, char* argv[])
             threading = true;
             break;
         case 'f':
-            fksm_parent(fd);
+            fksm = true;
             break;
         case 'a':
-            hash_tree(fd);
+            hash_tree_test = true;
             break;
         case 'h':
         default:
@@ -268,6 +271,21 @@ int main(int argc, char* argv[])
     {
         ufrk_fork_test(fd, threading);
     }
+    else if (fksm)
+    {
+        fksm_parent(fd);
+    }
+    else if (hash_tree_test)
+    {
+        hash_tree(fd);
+    }
 
-    return sus_close(fd);
+    if (getpid() == original)
+    {
+        return sus_close(fd);
+    }
+    else
+    {
+        return 0;
+    }
 }
