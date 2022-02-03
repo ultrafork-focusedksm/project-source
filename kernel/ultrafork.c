@@ -161,6 +161,7 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
 {
     pid_t cloned_task_pid;
     struct task_struct* cloned_task;
+    struct task_struct* iter;
     size_t cursor;
     // wake up new processes
     for (cursor = 0; cursor < tt->cursor; cursor++)
@@ -168,9 +169,21 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
         cloned_task_pid = tt->translations[cursor].new_pid;
         cloned_task = find_task_from_pid(cloned_task_pid);
 
-        pr_info("ufrk: wake_cloned_processes: waking process %d\n",
-                cloned_task->pid);
+        pr_info("ufrk: wake_cloned_processes: waking process %d. Parent=%d, "
+                "RealParent=%d\n",
+                cloned_task->pid, cloned_task->parent->pid,
+                cloned_task->real_parent->pid);
+
+        list_for_each_entry(iter, &cloned_task->children, sibling)
+        {
+            pr_info(
+                "ufrk: wake_cloned_processes: cloned task %d has child %d\n",
+                cloned_task->pid, iter->pid);
+        }
+
+        cloned_task->frozen = false;
         wake_up_new_task(cloned_task);
+        resume_task(cloned_task);
     }
 }
 
@@ -198,12 +211,21 @@ static int rebuild_siblings(struct pid_translation_table* tt)
 
     for (cursor = 0; cursor < tt->cursor; cursor++)
     {
+
         // iterate through each entry of the now-complete translation table.
 
         task = find_task_from_pid(tt->translations[cursor].old_pid);
         cloned_task_pid = tt->translations[cursor].new_pid;
         cloned_task = find_task_from_pid(cloned_task_pid);
         pr_info("iterating on pid %d\n", cloned_task->pid);
+
+        if (0 == cursor)
+        {
+            pr_info("ufrk: rebuild_siblings: topmost adding %d as child of %d\n",
+                    cloned_task->pid, cloned_task->parent->pid);
+            INIT_LIST_HEAD(&cloned_task->sibling);
+            list_add(&cloned_task->sibling, &cloned_task->parent->children);
+        }
 
         list_for_each_safe(pos, q, &task->children)
         {
@@ -222,8 +244,8 @@ static int rebuild_siblings(struct pid_translation_table* tt)
                         pr_info(
                             "ufrk: resibling: [%d] adding pid %d to children\n",
                             cloned_task->pid, cloned_iter_pid);
-                        INIT_LIST_HEAD(&cloned_iter_task->children);
-                        list_add(&cloned_iter_task->children,
+                        INIT_LIST_HEAD(&cloned_iter_task->sibling);
+                        list_add(&cloned_iter_task->sibling,
                                  &cloned_task->children);
                     }
                 }
@@ -309,14 +331,15 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
                 forked_task->pid, task->parent->pid);
         forked_task->parent = task->parent;
         forked_task->real_parent = task->real_parent;
+        forked_task->parent_exec_id = task->parent_exec_id;
+        forked_task->exit_signal = task->exit_signal;
 
         forked_task->signal->has_child_subreaper =
             task->real_parent->signal->has_child_subreaper ||
             task->real_parent->signal->is_child_subreaper;
-        /* forked_task->group_leader = task->group_leader; */
 
-        INIT_LIST_HEAD(&forked_task->children);
-        list_add(&forked_task->children, &task->parent->children);
+        /* INIT_LIST_HEAD(&forked_task->sibling); */
+        /* list_add(&forked_task->sibling, &task->parent->children); */
     }
     else
     {
@@ -330,8 +353,6 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
         forked_task->signal->has_child_subreaper =
             forked_task->real_parent->signal->has_child_subreaper ||
             forked_task->real_parent->signal->is_child_subreaper;
-
-        //   remove_from_siblings(task, forked_task);
     }
 
     // remove forked process from children
@@ -348,8 +369,6 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
             }
         }
     }
-
-    /* wake_up_new_task(forked_task); */
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
