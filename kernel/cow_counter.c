@@ -1,15 +1,10 @@
 #include "cow_counter.h"
+#include "util.h"
 #include <linux/limits.h>
 #include <linux/list.h>
 #include <linux/rmap.h>
 #include <linux/sched.h>
 #include <linux/sched/mm.h>
-
-static struct task_struct* find_task_from_pid(unsigned long pid)
-{
-    struct pid* pid_struct = find_get_pid(pid);
-    return get_pid_task(pid_struct, PIDTYPE_PID);
-}
 
 /**
  * The COW counter is a function that determines the size of any memory

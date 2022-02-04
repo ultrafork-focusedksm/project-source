@@ -1,6 +1,7 @@
 #include "ultrafork.h"
 #include "recursive_task_walker.h"
 #include "sus_fork.h"
+#include "util.h"
 #include <linux/anon_inodes.h>
 #include <linux/cgroup.h>
 #include <linux/completion.h>
@@ -129,12 +130,6 @@ static int run_rfork(struct task_walk_context* ctx)
         task_id++;
     }
     return err_count;
-}
-
-static struct task_struct* find_task_from_pid(unsigned long pid)
-{
-    struct pid* pid_struct = find_get_pid(pid);
-    return get_pid_task(pid_struct, PIDTYPE_PID);
 }
 
 /**
