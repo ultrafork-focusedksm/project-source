@@ -28,7 +28,7 @@ struct ufrk_ctx
 struct hash_tree_ctx
 {
     int flags;
-}
+};
 
 struct cow_ctx
 {

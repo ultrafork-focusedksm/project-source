@@ -26,6 +26,15 @@
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
 
+enum sus_tester_mode
+{
+    NONE,
+    UFRK,
+    COW,
+    FKSM,
+    HTREE
+};
+
 static pthread_t threads[2];
 
 static void print_bytes(uint8_t* input, size_t size)
@@ -90,7 +99,7 @@ static void ufrk_fork_test(int fd, bool threading)
 
 static void print_help(const char* progname)
 {
-    printf("%s -[uh]\nu: ultrafork test\nh: print help\n", progname);
+    printf("%s -[uhtc]\nu: ultrafork test\nh: print help\n", progname);
 }
 
 int child(int num, int addr_segment_id, int pids_segment_id)
@@ -239,33 +248,33 @@ static int hash_tree(int fd)
 int main(int argc, char* argv[])
 {
     int c;
-    volatile pid_t original = getpid();
-    bool cow = false;
-    bool ufrk = false;
-    bool threading = false;
-    bool fksm = false;
-    bool hash_tree_test = false;
     pid_t cow_pid;
+    ssize_t ret;
+
+    volatile pid_t original = getpid();
     int fd = sus_open();
+    enum sus_tester_mode mode = NONE;
+    bool threading = false;
+
     while ((c = getopt(argc, argv, "uhfatc:")) != -1)
     {
         switch (c)
         {
         case 'c':
-            cow = true;
+            mode = COW;
             cow_pid = atoi(optarg);
             break;
         case 'u':
-            ufrk = true;
+            mode = UFRK;
             break;
         case 't':
             threading = true;
             break;
         case 'f':
-            fksm = true;
+            mode = FKSM;
             break;
         case 'a':
-            hash_tree_test = true;
+            mode = HTREE;
             break;
         case 'h':
         default:
@@ -273,22 +282,26 @@ int main(int argc, char* argv[])
             break;
         }
     }
-    if (cow)
+
+    switch (mode)
     {
-        ssize_t ret = sus_cow_counter(fd, cow_pid);
+    case COW:
+        ret = sus_cow_counter(fd, cow_pid);
         printf("Cow Counter: Pid %d has %ld bytes COW memory\n", cow_pid, ret);
-    }
-    else if (ufrk)
-    {
+        break;
+    case UFRK:
         ufrk_fork_test(fd, threading);
-    }
-    else if (fksm)
-    {
+        break;
+    case FKSM:
         fksm_parent(fd);
-    }
-    else if (hash_tree_test)
-    {
+        break;
+    case HTREE:
         hash_tree(fd);
+        break;
+    case NONE:
+    default:
+        print_help(argv[0]);
+        exit(1);
     }
 
     if (getpid() == original)
