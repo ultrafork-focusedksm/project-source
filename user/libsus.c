@@ -67,6 +67,26 @@ int sus_ufrk_fork(int fd, pid_t pid, uint8_t flags)
     }
 }
 
+ssize_t sus_cow_counter(int fd, pid_t pid)
+{
+    if (pid <= 0)
+    {
+        return EINVAL;
+    }
+    struct sus_ctx ctx;
+    ctx.mode = SUS_MODE_COW;
+    ctx.cow.pid = pid;
+    ssize_t ret = ioctl(fd, SUS_MOD_COW_COUNTER, &ctx);
+    if (ret == -1)
+    {
+        return -errno;
+    }
+    else
+    {
+        return ret;
+    }
+}
+
 int sus_close(int fd)
 {
     return close(fd);

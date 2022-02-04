@@ -13,6 +13,8 @@ int sus_hash_tree_test(int fd, int flags);
 
 int sus_ufrk_fork(int, pid_t, uint8_t);
 
+ssize_t sus_cow_counter(int, pid_t);
+
 int sus_close(int);
 
 #endif

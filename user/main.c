@@ -240,15 +240,21 @@ int main(int argc, char* argv[])
 {
     int c;
     volatile pid_t original = getpid();
+    bool cow = false;
     bool ufrk = false;
     bool threading = false;
     bool fksm = false;
     bool hash_tree_test = false;
+    pid_t cow_pid;
     int fd = sus_open();
-    while ((c = getopt(argc, argv, "uhfat")) != -1)
+    while ((c = getopt(argc, argv, "uhfatc:")) != -1)
     {
         switch (c)
         {
+        case 'c':
+            cow = true;
+            cow_pid = atoi(optarg);
+            break;
         case 'u':
             ufrk = true;
             break;
@@ -267,7 +273,12 @@ int main(int argc, char* argv[])
             break;
         }
     }
-    if (ufrk)
+    if (cow)
+    {
+        ssize_t ret = sus_cow_counter(fd, cow_pid);
+        printf("Cow Counter: Pid %d has %ld bytes COW memory\n", cow_pid, ret);
+    }
+    else if (ufrk)
     {
         ufrk_fork_test(fd, threading);
     }

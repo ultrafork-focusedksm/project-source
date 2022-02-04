@@ -1,7 +1,8 @@
+#include "cow_counter.h"
 #include "focused_ksm.h"
+#include "hash_tree.h"
 #include "sus.h"
 #include "ultrafork.h"
-#include "hash_tree.h"
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/errno.h>
@@ -44,7 +45,7 @@ static int sus_mod_close(struct inode* i, struct file* f)
 static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
 {
     struct sus_ctx ctx;
-    int ret = -EINVAL;
+    ssize_t ret = -EINVAL;
     switch (cmd)
     {
     case SUS_MOD_FKSM_MERGE:
@@ -72,12 +73,21 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
         {
             ret = -EACCES;
         }
-        else if (SUS_MODE_HTREE == ctx.mode)
+        else if (SUS_MODE_COW == ctx.mode)
         {
-        	pr_debug("calling sus_mod_htree");
-            ret = sus_mod_htree(ctx.htree.flags);
+            ret = cow_count(ctx.cow.pid);
         }
         break;
+    case SUS_MOD_COW_COUNTER:
+        if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
+        {
+            ret = -EACCES;
+        }
+        else if (SUS_MODE_HTREE == ctx.mode)
+        {
+            pr_debug("calling sus_mod_htree");
+            ret = sus_mod_htree(ctx.htree.flags);
+        }
     default:
         break;
     }

@@ -221,8 +221,9 @@ static int rebuild_siblings(struct pid_translation_table* tt)
 
         if (0 == cursor)
         {
-            pr_info("ufrk: rebuild_siblings: topmost adding %d as child of %d\n",
-                    cloned_task->pid, cloned_task->parent->pid);
+            pr_info(
+                "ufrk: rebuild_siblings: topmost adding %d as child of %d\n",
+                cloned_task->pid, cloned_task->parent->pid);
             INIT_LIST_HEAD(&cloned_task->sibling);
             list_add(&cloned_task->sibling, &cloned_task->parent->children);
         }

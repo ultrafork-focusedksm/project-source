@@ -11,6 +11,7 @@ sus-y += ultrafork.o
 sus-y += hash_tree.o
 sus-y += sus_fork.o
 sus-y += recursive_task_walker.o
+sus-y += cow_counter.o
 
 .PHONY: build install load clean
 
