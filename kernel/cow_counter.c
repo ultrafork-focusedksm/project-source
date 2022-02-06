@@ -16,8 +16,8 @@
  * child processes.
  *
  * @param proc Process ID to scan
- * @return -1 in the event of error, otherwise the number of bytes COW shared
- * with this process.
+ * @return -errno in the event of error, otherwise the number of bytes COW
+ * shared with this process.
  */
 ssize_t cow_count(pid_t proc)
 {
@@ -34,8 +34,11 @@ ssize_t cow_count(pid_t proc)
         return -EINVAL;
     }
 
+    // get_task_mm does not require the caller to lock.
     mm = get_task_mm(task);
-    if (mm && NULL != mm->mmap)
+
+    // mm is NULL for kernel threads
+    if (NULL != mm && NULL != mm->mmap)
     {
         down_read(&mm->mmap_lock);
 
@@ -56,8 +59,8 @@ ssize_t cow_count(pid_t proc)
             }
         }
         up_read(&mm->mmap_lock);
+        pr_debug("%d total COW memory bytes %ld\n", task->pid, cow_memory);
     }
-    pr_info("%d total COW memory bytes %ld\n", task->pid, cow_memory);
 
     return cow_memory;
 }
