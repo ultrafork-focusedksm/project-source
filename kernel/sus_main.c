@@ -32,13 +32,13 @@ static struct file_operations sus_ioctl_fops = {.owner = THIS_MODULE,
 
 static int sus_mod_open(struct inode* i, struct file* f)
 {
-    printk(KERN_INFO SUS_MOD_LOG "open\n");
+    pr_debug(SUS_MOD_LOG "open\n");
     return 0;
 }
 
 static int sus_mod_close(struct inode* i, struct file* f)
 {
-    printk(KERN_INFO SUS_MOD_LOG "close\n");
+    pr_debug(SUS_MOD_LOG "close\n");
     return 0;
 }
 
@@ -46,48 +46,36 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
 {
     struct sus_ctx ctx;
     ssize_t ret = -EINVAL;
+    if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
+    {
+        ret = -EACCES;
+    }
     switch (cmd)
     {
     case SUS_MOD_FKSM_MERGE:
-        if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
-        {
-            ret = -EACCES;
-        }
-        else if (SUS_MODE_FKSM == ctx.mode)
+        if (SUS_MODE_FKSM == ctx.mode)
         {
             ret = sus_mod_merge(ctx.fksm.pid1, ctx.fksm.pid2);
         }
         break;
     case SUS_MOD_UFRK_FORK:
-        if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
-        {
-            ret = -EACCES;
-        }
-        else if (SUS_MODE_UFRK == ctx.mode)
+        if (SUS_MODE_UFRK == ctx.mode)
         {
             ret = sus_mod_fork(ctx.ufrk.pid, ctx.ufrk.flags);
         }
         break;
     case SUS_MOD_HASH_TREE:
-        if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
+        if (SUS_MODE_HTREE == ctx.mode)
         {
-            ret = -EACCES;
+            ret = sus_mod_htree(ctx.htree.flags);
         }
-        else if (SUS_MODE_COW == ctx.mode)
+        break;
+    case SUS_MOD_COW_COUNTER:
+        if (SUS_MODE_COW == ctx.mode)
         {
             ret = cow_count(ctx.cow.pid);
         }
         break;
-    case SUS_MOD_COW_COUNTER:
-        if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
-        {
-            ret = -EACCES;
-        }
-        else if (SUS_MODE_HTREE == ctx.mode)
-        {
-            pr_debug("calling sus_mod_htree");
-            ret = sus_mod_htree(ctx.htree.flags);
-        }
     default:
         break;
     }
