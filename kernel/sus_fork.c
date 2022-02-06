@@ -491,13 +491,13 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = security_task_alloc(p, clone_flags);
     if (retval)
         goto bad_fork_cleanup_audit;
-    retval = copy_semundo(clone_flags, p);
+    retval = sus_copy_semundo(clone_flags, p, target);
     if (retval)
         goto bad_fork_cleanup_security;
-    retval = copy_files(clone_flags, p);
+    retval = sus_copy_files(clone_flags, p, target);
     if (retval)
         goto bad_fork_cleanup_semundo;
-    retval = copy_fs(clone_flags, p);
+    retval = sus_copy_fs(clone_flags, p, target);
     if (retval)
         goto bad_fork_cleanup_files;
     retval = sus_copy_sighand(clone_flags, p, target);
