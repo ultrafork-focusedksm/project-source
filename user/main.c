@@ -18,8 +18,10 @@
 #define PAGES_PER_PID 5
 #define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
-#define ADDR_SEGMENT_SIZE (8*NUM_PIDS*PAGES_PER_PID) //8 byte pointers for each segment
-#define PIDS_SEGMENT_SIZE (4*NUM_PIDS)//4 bytes for 32 bit int * number of pids
+#define ADDR_SEGMENT_SIZE                                                      \
+    (8 * NUM_PIDS * PAGES_PER_PID) // 8 byte pointers for each segment
+#define PIDS_SEGMENT_SIZE                                                      \
+    (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
 
 void print_bytes(uint8_t* input, size_t size)
 {
@@ -31,8 +33,10 @@ void print_bytes(uint8_t* input, size_t size)
     printf("\n");
 }
 
-int child(int num, void** addrs, int* pids)
+int child(int num, int addr_segment_id, int pids_segment_id)
 {
+    void** addrs = shmat(addr_segment_id, 0, 0);
+    int* pids = shmat(pids_segment_id, 0, 0);
 
     pids[(1 + num)] = getpid(); // offset by 1 for the children segment,
                                 // then offset by num of the current child
@@ -44,31 +48,34 @@ int child(int num, void** addrs, int* pids)
         addrs[(child_offset + i)] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[(child_offset + i)], 0xaa, getpagesize());
     }
+    shmdt(addrs);
+    shmdt(pids);
 
-    sleep(1);
+    sleep(60);
     return 0;
 }
 
 int main(void)
 {
+    void** addrs;
+    int* pids;
     int addr_segment_id;
     addr_segment_id = shmget(IPC_PRIVATE, ADDR_SEGMENT_SIZE,
                              IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    // todo: check if shmget worked
-    void** addrs = shmat(addr_segment_id, 0, 0);
+    if (addr_segment_id == -1)
+    {
+        perror("addr_shmget");
+    }
+    // todo: attach after fork
 
     int pids_segment_id;
     pids_segment_id = shmget(IPC_PRIVATE, PIDS_SEGMENT_SIZE,
                              IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
-    // todo: check if shmget worked
-    int* pids = shmat(pids_segment_id, 0, 0);
-
-    pids[0] = getpid();
-    for (int i = 0; i < PAGES_PER_PID; i++)
+    if (pids_segment_id == -1)
     {
-        addrs[i] = aligned_alloc(getpagesize(), getpagesize());
-        memset(addrs[i], 0xaa, getpagesize());
+        perror("pids_shmget");
     }
+    // todo: check if shmget worked
 
     pid_t cpid;
     cpid = fork();
@@ -81,11 +88,19 @@ int main(void)
     if (cpid == 0)
     { /* Code executed by child */
         printf("%d | %d \n", getppid(), getpid());
-        child(0, addrs, pids);
+        child(0, addr_segment_id, pids_segment_id);
         return 0;
     }
     else
     { /* Code executed by parent */
+        addrs = shmat(addr_segment_id, 0, 0);
+        pids = shmat(pids_segment_id, 0, 0);
+        pids[0] = getpid();
+        for (int i = 0; i < PAGES_PER_PID; i++)
+        {
+            addrs[i] = aligned_alloc(getpagesize(), getpagesize());
+            memset(addrs[i], 0xaa, getpagesize());
+        }
         sleep(5);
         uint8_t blake2b_out[BLAKE2B_OUTBYTES];
         for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
@@ -123,7 +138,7 @@ int main(void)
     {
         printf("Wrote to ioctl\n");
     }
-    sleep(15); // arbitrary
+    sleep(8); // arbitrary
     printf("Slept\n");
     sus_close(fd);
     printf("Closed ioctl\n");
@@ -137,8 +152,6 @@ release:
     }
     shmdt(addrs);
     shmctl(addr_segment_id, IPC_RMID, 0);
-    // shm_unlink(FKSM_ADDR);
-    // shm_unlink(FKSM_PIDS);
 
     return 0;
 }
