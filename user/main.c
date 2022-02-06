@@ -74,10 +74,10 @@ static void ufrk_fork_test(int fd, bool threading)
     {
         // parent process
         // IMPORTANT: we pass getpid() here, not the pid of the child.
-        printf("Parent PID: %d, TID: %d\n", getpid(), gettid());
+        printf("Parent PID: %d\n", getpid());
         sus_ufrk_fork(fd, getpid(), 0);
         // fail_fast();
-        printf("Survived ufrk: %d,%d\n", getpid(), gettid());
+        printf("Survived ufrk: %d\n", getpid());
 
         if (threading)
         {
@@ -100,6 +100,7 @@ static void ufrk_fork_test(int fd, bool threading)
     {
         printf("Unable to fork test process\n");
     }
+    printf("Process %d returning\n", getpid());
 }
 
 static void cow_count(int fd, pid_t cow_pid)
