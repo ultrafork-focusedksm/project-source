@@ -25,6 +25,11 @@
     (8 * NUM_PIDS * PAGES_PER_PID) // 8 byte pointers for each segment
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
+#define PROCESS_SLEEP_TIME 60
+#define PS_COMMAND "ps -o rss,vsz "
+#define PS_FORMAT PS_COMMAND "%d"
+#define PS_COMMAND_LEN (sizeof(PS_COMMAND) + 8)
+#define BYTES_TO_KILO(x) (x / 1024)
 
 enum sus_tester_mode
 {
@@ -56,7 +61,7 @@ static void* thread_function(void* arg)
 {
     (void)arg;
     printf("started %d\n", gettid());
-    sleep(10);
+    sleep(PROCESS_SLEEP_TIME);
     printf("done %d\n", gettid());
     return NULL;
 }
@@ -78,7 +83,7 @@ static void ufrk_fork_test(int fd, bool threading)
         {
             pthread_create(&threads[0], NULL, thread_function, NULL);
         }
-        sleep(10);
+        sleep(PROCESS_SLEEP_TIME);
     }
     else if (pid == 0)
     {
@@ -88,12 +93,28 @@ static void ufrk_fork_test(int fd, bool threading)
         {
             pthread_create(&threads[1], NULL, thread_function, NULL);
         }
-        sleep(10);
+        sleep(PROCESS_SLEEP_TIME);
         printf("Child PID: %d, TID: %d\n", getpid(), gettid());
     }
     else
     {
         printf("Unable to fork test process\n");
+    }
+}
+
+static void cow_count(int fd, pid_t cow_pid)
+{
+    char ps_command_buffer[PS_COMMAND_LEN];
+    ssize_t ret = sus_cow_counter(fd, cow_pid);
+
+    printf("Cow Counter: Pid %d has %ld bytes COW memory\n", cow_pid,
+           BYTES_TO_KILO(ret));
+    snprintf(ps_command_buffer, PS_COMMAND_LEN, PS_FORMAT, getpid());
+    int status = system(ps_command_buffer);
+
+    if (status != 0)
+    {
+        fprintf(stderr, "Unable to run ps command\n");
     }
 }
 
@@ -249,7 +270,6 @@ int main(int argc, char* argv[])
 {
     int c;
     pid_t cow_pid;
-    ssize_t ret;
 
     volatile pid_t original = getpid();
     int fd = sus_open();
@@ -286,8 +306,7 @@ int main(int argc, char* argv[])
     switch (mode)
     {
     case COW:
-        ret = sus_cow_counter(fd, cow_pid);
-        printf("Cow Counter: Pid %d has %ld bytes COW memory\n", cow_pid, ret);
+        cow_count(fd, cow_pid);
         break;
     case UFRK:
         ufrk_fork_test(fd, threading);
