@@ -370,7 +370,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     }
     target->flags &= ~PF_NPROC_EXCEEDED;
 
-    retval = copy_creds(p, clone_flags);
+    retval = sus_copy_creds(p, clone_flags, target);
     if (retval < 0)
     {
         pr_err("sus_copy_process: copy_creds failed\n");
@@ -472,7 +472,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
 #endif
 
     /* Perform scheduler related setup. Assign this task to a CPU. */
-    retval = sched_fork(clone_flags, p);
+    retval = sus_sched_fork(clone_flags, p, target);
     if (retval)
     {
         pr_err("sus_copy_process: failed to setup scheduler\n");
@@ -653,7 +653,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
 
     klp_copy_process(p);
 
-    sched_core_fork(p);
+    sus_sched_core_fork(p, target);
 
     spin_lock(&target->sighand->siglock);
 
@@ -663,7 +663,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      */
     sus_copy_seccomp(p, target);
 
-    rseq_fork(p, clone_flags);
+    sus_rseq_fork(p, clone_flags, target);
 
     /* Don't start children in a dying pid namespace */
     if (unlikely(!(ns_of_pid(pid)->pid_allocated & PIDNS_ADDING)))
@@ -744,7 +744,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     perf_event_fork(p);
 
     // trace_task_newtask(p, clone_flags);
-    uprobe_copy_process(p, clone_flags);
+    sus_uprobe_copy_process(p, clone_flags, target);
 
     copy_oom_score_adj(clone_flags, p);
 
