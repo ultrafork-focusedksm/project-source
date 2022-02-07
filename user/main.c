@@ -26,7 +26,7 @@
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
 #define PROCESS_SLEEP_TIME 60
-#define PS_COMMAND "ps -o rss,vsz "
+#define PS_COMMAND "ps -o rss,vsz,drs,trs "
 #define PS_FORMAT PS_COMMAND "%d"
 #define PS_COMMAND_LEN (sizeof(PS_COMMAND) + 8)
 #define BYTES_TO_KILO(x) (x / 1024)
@@ -108,7 +108,7 @@ static void cow_count(int fd, pid_t cow_pid)
     char ps_command_buffer[PS_COMMAND_LEN];
     ssize_t ret = sus_cow_counter(fd, cow_pid);
 
-    printf("Cow Counter: Pid %d has %ld bytes COW memory\n", cow_pid,
+    printf("Cow Counter: Pid %d has %ldkB COW memory\n", cow_pid,
            BYTES_TO_KILO(ret));
     snprintf(ps_command_buffer, PS_COMMAND_LEN, PS_FORMAT, getpid());
     int status = system(ps_command_buffer);
