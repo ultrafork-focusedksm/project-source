@@ -214,14 +214,14 @@ static void combine(struct metadata_collection* list1,
     {
         if (curr_list1->first)
             continue;
-        pr_info("FKSM_MERGE: CHECKING AGAINST %p",
-                curr_list1->page_metadata.page);
+        // pr_info("FKSM_MERGE: CHECKING AGAINST %p",
+        //         curr_list1->page_metadata.page);
         list_for_each_entry(curr_list2, &list2->list, list)
         {
             if (curr_list2->first)
                 continue;
-            pr_info("FKSM_MERGE: COMPARE TO %p",
-                    curr_list2->page_metadata.page);
+            // pr_info("FKSM_MERGE: COMPARE TO %p",
+            //         curr_list2->page_metadata.page);
 
             if ((curr_list1->page_metadata.page !=
                  curr_list2->page_metadata.page) &&
@@ -242,12 +242,21 @@ static void combine(struct metadata_collection* list1,
                     return;
                 }
                 pr_info("FKSM_MERGE: FIND VMA");
+                pr_info("FKSM_MERGE: FIND VMA ARGS\n");
+                pr_info("FKSM_MERGE: mm %p\n", curr_list1->page_metadata.mm);
+
                 struct vm_area_struct* curr_vma = find_vma(
                     curr_list1->page_metadata.mm, (unsigned long int)addr);
                 kunmap_atomic(addr);
-                pr_info("FKSM_MERGE: VMA FOUND");
+                
+                if (!curr_vma){
+                    pr_err("FKSM_ERROR: In combine(), curr_vma is null");
+                    continue;
+                }
 
+                pr_info("FKSM_MERGE: VMA FOUND");
                 pr_info("FKSM_MERGE: CALL TO REPLACE_PAGE");
+
                 int code = replace_page(curr_vma, curr_page1, curr_page2,
                                         *(curr_list1->page_metadata.pte));
                 if (code == -EFAULT)
