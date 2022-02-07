@@ -40,12 +40,12 @@ struct pid_translation_table
 struct task_walk_context
 {
     struct task_struct* task;
-    struct list_head list;
-    size_t task_count;
     /** Pointer to the single translation table instance. */
     struct pid_translation_table* tt;
-    pid_t parent;
-    pid_t forked_pid;
+    struct list_head list;
+    /** Counter for the number of processes being cloned. Used to allocate the
+     * translation table */
+    size_t task_count;
     /** Flag indicating this processes status as the 'root' process in the
      * Ultrafork group.*/
     u8 is_topmost;
@@ -76,7 +76,6 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
     pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
     suspend_task(task);
 
-    node->parent = task->real_parent->pid; // or parent
     node->task = task;
     INIT_LIST_HEAD(&node->list);
 
@@ -306,9 +305,6 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
     pr_info("rfork forked: %s, pid=%d, tgid=%d\n", forked_task->comm,
             forked_task->pid, forked_task->tgid);
 
-    // TODO: unused:
-    ctx->forked_pid = forked_task->pid;
-
     ctx->tt->translations[ctx->tt->cursor].old_pid = task->pid;
     ctx->tt->translations[ctx->tt->cursor].new_pid = forked_task->pid;
     pr_info("rfork: storting mapping %d -> %d in tt slot %ld\n", task->pid,
@@ -454,7 +450,7 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     struct task_struct* parent;
     struct pid_translation_table* tt;
     struct task_walk_context wctx = {
-        .task = NULL, .parent = 0, .is_topmost = 0, .task_count = 0};
+        .task = NULL, .is_topmost = 0, .task_count = 0};
     INIT_LIST_HEAD(&wctx.list);
 
     if (pid < 1)
