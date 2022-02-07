@@ -8,6 +8,8 @@ int sus_open();
 
 int sus_fksm_merge(int, pid_t, pid_t);
 
+int sus_hash_tree_test(int flags);
+
 int sus_close(int);
 
 #endif
