@@ -49,6 +49,7 @@ struct task_walk_context
     /** Flag indicating this processes status as the 'root' process in the
      * Ultrafork group.*/
     u8 is_topmost;
+    u8 is_process;
 };
 
 static int recursive_task_traverse(struct task_struct* task, void* data);
@@ -66,29 +67,48 @@ static struct recursive_task_walker rfork_resume_walker = {
     .task_handler = recursive_task_resume,
 };
 
-static int recursive_task_traverse(struct task_struct* task, void* data)
+static void make_new_task_node(struct task_struct* task,
+                               struct task_walk_context* metadata,
+                               u8 is_process)
 {
-    struct task_walk_context* ctx = (struct task_walk_context*)data;
-
     struct task_walk_context* node =
         kmalloc(sizeof(struct task_walk_context), GFP_KERNEL);
-
-    pr_info("%s, pid=%d, tgid=%d\n", task->comm, task->pid, task->tgid);
-    suspend_task(task);
 
     node->task = task;
     INIT_LIST_HEAD(&node->list);
 
-    if (ctx->is_topmost == 0)
+    if (metadata->is_topmost == 0)
     {
         pr_info("ufrk: topmost\n");
         node->is_topmost = 1;
-        ctx->is_topmost = 2;
+        metadata->is_topmost = 2;
     }
-    ctx->task_count++;
+    metadata->task_count++;
+    node->is_process = is_process;
 
-    pr_info("ufrk: fork_list_add: %p\n", node);
-    list_add_tail(&node->list, &ctx->list);
+    pr_debug("ufrk: fork_list_add: %p\n", node);
+    list_add_tail(&node->list, &metadata->list);
+}
+
+static int recursive_task_traverse(struct task_struct* task, void* data)
+{
+    struct task_struct* thread = NULL;
+    struct task_walk_context* ctx = (struct task_walk_context*)data;
+
+    pr_info("%s, pid=%d, tid=%d\n", task->comm, task->pid, task_pid_vnr(task));
+    suspend_task(task);
+
+    make_new_task_node(task, ctx, 1);
+
+    for_each_thread(task, thread)
+    {
+        pr_info("thread: pid=%d, tid=%d\n", thread->pid, task_pid_vnr(thread));
+        make_new_task_node(thread, ctx, 0);
+
+        pr_info("thread %d has pid %d, parent %d and real_parent %d\n",
+                task_pid_vnr(thread), thread->pid, thread->parent->pid,
+                thread->real_parent->pid);
+    }
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
 }
@@ -379,13 +399,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
  */
 static void suspend_task(struct task_struct* task)
 {
-    struct task_struct* t;
     kill_pid(task_pid(task), SIGSTOP, 1);
-    for_each_thread(task, t)
-    {
-        pr_info("ufrk: suspend_task: Process %d has thread %d\n", task->pid,
-                task_pid_vnr(t));
-    }
 }
 
 /**

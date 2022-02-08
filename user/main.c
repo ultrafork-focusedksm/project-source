@@ -60,7 +60,7 @@ static inline void fail_fast()
 static void* thread_function(void* arg)
 {
     (void)arg;
-    printf("started %d\n", gettid());
+    printf("started %d %d\n", gettid(), getpid());
     sleep(PROCESS_SLEEP_TIME);
     printf("done %d\n", gettid());
     return NULL;
@@ -75,14 +75,15 @@ static void ufrk_fork_test(int fd, bool threading)
         // parent process
         // IMPORTANT: we pass getpid() here, not the pid of the child.
         printf("Parent PID: %d\n", getpid());
-        sus_ufrk_fork(fd, getpid(), 0);
-        // fail_fast();
-        printf("Survived ufrk: %d\n", getpid());
-
         if (threading)
         {
             pthread_create(&threads[0], NULL, thread_function, NULL);
         }
+        sus_ufrk_fork(fd, getpid(), 0);
+        // fail_fast();
+        printf("Survived ufrk: %d\n", getpid());
+
+
         sleep(PROCESS_SLEEP_TIME);
     }
     else if (pid == 0)
