@@ -84,7 +84,9 @@ int child(int num)
 int main(void)
 {
     // TODO: call ioctl and print hashes
-
+    // TODO: reset this after testing is done
+    sus_hash_tree_test(sus_open(), 1);
+    
     int pids_fd =
         shm_open(FKSM_PIDS, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
     if (pids_fd == -1)

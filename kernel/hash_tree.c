@@ -17,14 +17,15 @@ struct first_level_bucket* first_level_init(void) {
  * 
  * @return struct second_level_container* The new container
  */
-struct second_level_container* second_level_init(void) {
+struct second_level_container* second_level_init(struct second_level_container* previous) {
     struct second_level_container* new_container = kmalloc(sizeof (struct second_level_container), GFP_KERNEL); //Allocate second level container
     new_container->buckets = kzalloc(32 * sizeof(struct second_level_bucket), GFP_KERNEL); //Each container gets a 32-array of buckets
     int i = 0;
-    for (i; i < 32; i++) { //Initialize each bucket
+    for (; i < 32; i++) { //Initialize each bucket
         new_container->buckets[i].tree = RB_ROOT; //Initialize the red-black tree in each bucket
     }
     new_container->next = NULL; //Pointer to next container starts as null since there is no next container
+    new_container->prev = previous; //Set up previous container
     return new_container;
 }
 
@@ -42,11 +43,10 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
 
     tree[first_byte].byte = first_byte; //Just put the first byte in the first level array 
     if (tree[first_byte].ptr == NULL) { //If the container in that slot isn't defined, define it
-        tree[first_byte].ptr = second_level_init();
+        tree[first_byte].ptr = second_level_init(NULL);
     }
 
     //====SECOND LEVEL HASH====//
-    if (tree[first_byte].ptr == NULL) tree[first_byte].ptr = second_level_init();
     struct second_level_container* curr_container = tree[first_byte].ptr; //Get the first container from the current bucket on the tree
     bool add_success = false;
     while (add_success == false) { // We're going to keep going through each container in sequence and see if the xxHash value is present
@@ -77,7 +77,7 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
         }
         if (add_success == false) { //if we go through all 32 buckets and still don't successfully add the new item, go to the next container
             if (curr_container->next == NULL) { //If there isn't another cotainer connected to this one just yet, add a new one
-                curr_container->next = second_level_init();
+                curr_container->next = second_level_init(curr_container);
             }
             curr_container = curr_container->next; //Go to the next container
         }
@@ -113,7 +113,7 @@ struct page_metadata* hash_tree_lookup(struct first_level_bucket* tree, u64 xxha
     		int i = 0;
     		for (i = 0; i < 32; i++) { //Loop through all 32 buckets on the current container
     			if (xxhash == curr_container->buckets[i].value) { //If we do find the xxhash, search the rbtree for the blake2b
-    				struct page_metadata* result = rb_search(&curr_container->buckets[i].tree, blake2b); //This will return NULL if the rb_search doesn't find what it's looking for
+    				struct page_metadata* result = rb_search(&curr_container->buckets[i].tree, blake2b)->metadata; //This will return NULL if the rb_search doesn't find what it's looking for
     				return result;
     			}
     		}
@@ -122,6 +122,60 @@ struct page_metadata* hash_tree_lookup(struct first_level_bucket* tree, u64 xxha
     	}
     }
     return NULL;
+}
+
+int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
+	//====FIRST LEVEL HASH====//
+	u8 first_byte = ((u8*)xxhash)[0];
+	
+	if (tree[first_byte].ptr == NULL) {
+		pr_err("HASH_TREE_ERROR: delete failed, could not find first byte of xxhash in first level hash");
+	}
+	
+	//====SECOND LEVEL HASH====//
+	else {
+		struct second_level_container* curr_container = tree[first_byte].ptr; //Get the container pointed to by the bucket in the first level hash
+    	bool find_success = false;
+    	while(find_success == false) { //Keep looping until we hit a termination condition
+    		int i = 0;
+    		for (; i < 32; i++) { //Loop through all 32 buckets on the current container
+    			if (xxhash == curr_container->buckets[i].value) { 
+    				struct hash_tree_node* curr_node = rb_search(&curr_container->buckets[i].tree, blake2b);
+    				if (curr_node) {
+    					rb_erase(&curr_node->node, &curr_container->buckets[i].tree);
+    					kfree(curr_node);
+    					if (curr_container->buckets[i].tree.rb_node == NULL) { //if the root of the tree is now null, we can set the bucket it's in to 0
+							curr_container->buckets[i].value = 0;
+							bool container_emtpy = true;
+							int j = 0;
+							//Now we check to see if the whole container is empty -- if so, we can pave the entire thing
+							for (; j < 32; j++) {
+								if (curr_container->buckets[j].value != 0) { //If we find any non-zero values, the container is not empty
+									container_empty = false;
+									break;
+								}
+							}
+							if (container_empty) { //If the container is empty, remove it
+								if (curr_container->prev != NULL) curr_container->prev->next = curr_container->next; //Link the adjacent containers
+								if (curr_container->next != NULL) curr_container->next->prev = curr_container->prev;
+								kfree(curr_container); //free current container
+							}
+    					}
+    					return 0;
+    				}
+    				else {
+    					pr_err("HASH_TREE_ERROR: delete failed, couldn't find blake2b hash in rbtree");
+    					return -1;
+    				}
+    			}
+    		}
+    		if (curr_container->next == NULL) { //If we hit a NULL looping through each container, we've hit the end of the second level hash and thus haven't found it
+    			pr_err("HASH_TREE_ERROR: delete failed, couldn't find xxhash in second level hash");
+	    		return -1;
+    		}
+    		else curr_container = curr_container->next; 
+    	}
+	}
 }
 
 /**
@@ -166,7 +220,7 @@ int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add) {
  * @param rb_root The root of the red-black tree to search
  * @param blake2b The blake2b value to look for
  */
-struct page_metadata* rb_search(struct rb_root *root, u8* blake2b) {
+struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b) {
 
 	struct rb_node* node = root->rb_node; //Start at the first node
 	
@@ -176,7 +230,7 @@ struct page_metadata* rb_search(struct rb_root *root, u8* blake2b) {
 		
 		if (result < 0) node = node->rb_left; //If our blake2b is less than the value in the current node, go left
 		else if (result > 0) node = node->rb_right; //Else go right
-		else return data->metadata; //If they're equal, return the metadata in the current node
+		else return data; //If they're equal, return the current node
 	}
 	
 	return NULL; //If we get through all the nodes without finding what we want, return NULL
@@ -184,5 +238,18 @@ struct page_metadata* rb_search(struct rb_root *root, u8* blake2b) {
 
 
 int sus_mod_htree(int flags) {
+	printk("Entering ioctl");
+	//u64 test_xxhash = 346236456;
+	//u8* test_blake = kmalloc(sizeof(u64), GFP_KERNEL);
+	
+	//struct first_level_bucket* test_first_level = first_level_init();
+	//printk("Initialized first_level_bucket");
+
 	return 0;
 }
+
+
+
+
+
+

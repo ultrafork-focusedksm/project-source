@@ -13,6 +13,7 @@ struct first_level_bucket {
 struct second_level_container {
     struct second_level_bucket* buckets;
     struct second_level_container* next;
+    struct second_level_container* prev;
 };
 
 struct second_level_bucket {
@@ -27,15 +28,13 @@ struct hash_tree_node {
 };
 
 struct first_level_bucket* first_level_init(void);
-
-int sus_mod_htree(int flags);
+struct second_level_container* second_level_init(second_level_container* previous);
 
 int hash_tree_add(struct first_level_bucket* map, u64 xxhash, u8* blake2b, struct page_metadata* metadata);
-
 struct page_metadata* hash_tree_lookup(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
+int hash_tree_delete(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
 
-struct page_metadata* rb_search(struct rb_root *root, u8* blake2b);
-
+struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b);
 int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add);
 
 int sus_mod_htree(int flags);

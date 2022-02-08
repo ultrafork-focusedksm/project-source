@@ -66,6 +66,7 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
         {
             ret = sus_mod_fork(ctx.ufrk.pid, ctx.ufrk.flags);
         }
+        break;
     case SUS_MOD_HASH_TREE:
         if (copy_from_user(&ctx, (struct sus_ctx*)arg, sizeof(struct sus_ctx)))
         {
@@ -75,6 +76,7 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
         {
             ret = sus_mod_htree(ctx.htree.flags);
         }
+        break;
     default:
         break;
     }

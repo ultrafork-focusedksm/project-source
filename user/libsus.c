@@ -31,7 +31,7 @@ int sus_fksm_merge(int fd, pid_t pid1, pid_t pid2)
 int sus_hash_tree_test(int fd, int flags)
 {
     struct sus_ctx ctx;
-    ctx.flags = flags;
+    ctx.htree.flags = flags;
     if (ioctl(fd, SUS_MOD_HASH_TREE, &ctx) == -1)
     {
         return -errno;
