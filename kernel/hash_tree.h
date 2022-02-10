@@ -6,18 +6,20 @@
 #include <linux/xxhash.h>
 
 struct first_level_bucket {
-    u64 byte;
     struct second_level_container* ptr;
+    u8 byte;
 };
 
 struct second_level_container {
     struct second_level_bucket* buckets;
     struct second_level_container* next;
     struct second_level_container* prev;
+    int counter;
 };
 
 struct second_level_bucket {
-    u64 value;
+    u64 xxhash;
+    bool in_use;
     struct rb_root tree;
 };
 
