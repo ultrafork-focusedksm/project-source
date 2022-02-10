@@ -36,7 +36,4 @@ int hash_tree_add(struct first_level_bucket* map, u64 xxhash, u8* blake2b, struc
 struct page_metadata* hash_tree_lookup(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
 int hash_tree_delete(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
 
-struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b);
-int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add);
-
 int sus_mod_htree(int flags);
