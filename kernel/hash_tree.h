@@ -30,7 +30,7 @@ struct hash_tree_node {
 };
 
 struct first_level_bucket* first_level_init(void);
-struct second_level_container* second_level_init(second_level_container* previous);
+struct second_level_container* second_level_init(struct second_level_container* previous);
 
 int hash_tree_add(struct first_level_bucket* map, u64 xxhash, u8* blake2b, struct page_metadata* metadata);
 struct page_metadata* hash_tree_lookup(struct first_level_bucket* map, u64 xxhash, u8* blake2b);

@@ -1,6 +1,7 @@
 #include "hash_tree.h"
 #include <linux/types.h>
 #include <linux/kernel.h>
+#include <linux/vmalloc.h>
 #define CONTAINER_SIZE 32
 
 
@@ -10,7 +11,7 @@
  * @return struct first_level_bucket* Pointer to the beginning of the array
  */
 struct first_level_bucket* first_level_init(void) {
-    struct first_level_bucket* new_hash_tree = vzalloc(256 * sizeof(struct first_level_bucket), GFP_KERNEL); //Allocate 256 element tree
+    struct first_level_bucket* new_hash_tree = vzalloc(256 * sizeof(struct first_level_bucket)); //Allocate 256 element tree
     return new_hash_tree;
 }
 
@@ -20,8 +21,8 @@ struct first_level_bucket* first_level_init(void) {
  * @return struct second_level_container* The new container
  */
 struct second_level_container* second_level_init(struct second_level_container* previous) {
-    struct second_level_container* new_container = vmalloc(sizeof (struct second_level_container), GFP_KERNEL); //Allocate second level container
-    new_container->buckets = vzalloc(CONTAINER_SIZE * sizeof(struct second_level_bucket), GFP_KERNEL); //Each container gets a 32-array of buckets
+    struct second_level_container* new_container = vmalloc(sizeof (struct second_level_container)); //Allocate second level container
+    new_container->buckets = vzalloc(CONTAINER_SIZE * sizeof(struct second_level_bucket)); //Each container gets a 32-array of buckets
     new_container->counter = 0;
     int i = 0;
     for (; i < CONTAINER_SIZE; i++) { //Initialize each bucket
@@ -31,6 +32,65 @@ struct second_level_container* second_level_init(struct second_level_container* 
     new_container->next = NULL; //Pointer to next container starts as null since there is no next container
     new_container->prev = previous; //Set up previous container
     return new_container;
+}
+
+/**
+ * @brief Adds a node to the red-black tree
+ * 
+ * @param root The root of the red-black tree
+ * @param node_to_add The red-black node to add to the tree
+ */
+static int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add) {
+    //Credit for most of this code is the example for rbtree on kernel.org
+
+    struct rb_node **new_node = &(root->rb_node); //Get the address of the node pointer stored in our root
+    struct rb_node *parent = NULL;
+
+    //Now here's the meat of the operation: figuring out where the new node goes
+    while (*new_node) {
+        struct hash_tree_node* curr_node = container_of(*new_node, struct hash_tree_node, node);
+        int result = memcmp(node_to_add->value, curr_node->value, BLAKE2B_512_HASH_SIZE);
+
+        parent = *new_node; //move down 1 node, so the current node ends up being the parent
+        if (result < 0) { //If the hash we're adding is less than the current value, move to the left
+            new_node = &((*new_node)->rb_left);
+        }
+        else if (result > 0) { //If the hash we're adding is greater than the current value, move to the right
+            new_node = &((*new_node)->rb_right);
+        }
+        else { //Otherwise, return an error code
+        	pr_err("HASH_TREE_ERROR: blake2b collision in red-black tree");
+            return -1;
+        }
+    }
+
+    //Now we add the new node, then tell the tree to rebalance
+    rb_link_node(&node_to_add->node, parent, new_node);
+    rb_insert_color(&node_to_add->node, root);
+
+    return 0;
+}
+
+/**
+ * @brief Searches a red-black tree for a given blake2b hash, and returns a pointer to the page_metadata struct associated with it if found
+ *
+ * @param rb_root The root of the red-black tree to search
+ * @param blake2b The blake2b value to look for
+ */
+static struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b) {
+
+	struct rb_node* node = root->rb_node; //Start at the first node
+	
+	while(node) { //Loop through all the nodes
+		struct hash_tree_node* data = container_of(node, struct hash_tree_node, node); //Get the data of the current node
+		int result = memcmp(blake2b, data->value, BLAKE2B_512_HASH_SIZE); //Compare the desired blake2b with the value in the data
+		
+		if (result < 0) node = node->rb_left; //If our blake2b is less than the value in the current node, go left
+		else if (result > 0) node = node->rb_right; //Else go right
+		else return data; //If they're equal, return the current node
+	}
+	
+	return NULL; //If we get through all the nodes without finding what we want, return NULL
 }
 
 /**
@@ -67,7 +127,7 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
         	if (curr_container->buckets[i].in_use == false) { //If the current bucket isn't in use, put our hash there
                 curr_container->buckets[i].xxhash = xxhash; 
                 curr_container->counter += 1; //Since we're adding a new value, increment the counter in the container
-                struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node), GFP_KERNEL); //Create a new hash tree node to put into the rbtree
+                struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node)); //Create a new hash tree node to put into the rbtree
                 new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
@@ -77,7 +137,7 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
                 else add_success = true;
             }
             else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
-                struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node), GFP_KERNEL);
+                struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
                 new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
@@ -143,6 +203,7 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 	
 	if (tree[first_byte].ptr == NULL) {
 		pr_err("HASH_TREE_ERROR: delete failed, could not find first byte of xxhash in first level hash");
+		return -1;
 	}
 	
 	//====SECOND LEVEL HASH====//
@@ -183,72 +244,16 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
     		else curr_container = curr_container->next; 
     	}
 	}
+	return -1; //if we get here, we must have failed
 }
 
-/**
- * @brief Adds a node to the red-black tree
- * 
- * @param root The root of the red-black tree
- * @param node_to_add The red-black node to add to the tree
- */
-static int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add) {
-    //Credit for most of this code is the example for rbtree on kernel.org
 
-    struct rb_node **new_node = &(root->rb_node); //Get the address of the node pointer stored in our root
-    struct rb_node *parent = NULL;
-
-    //Now here's the meat of the operation: figuring out where the new node goes
-    while (*new_node) {
-        struct hash_tree_node* curr_node = container_of(*new_node, struct hash_tree_node, node);
-        int result = memcmp(node_to_add->value, curr_node->value, BLAKE2B_512_HASH_SIZE);
-
-        parent = *new_node; //move down 1 node, so the current node ends up being the parent
-        if (result < 0) { //If the hash we're adding is less than the current value, move to the left
-            new_node = &((*new_node)->rb_left);
-        }
-        else if (result > 0) { //If the hash we're adding is greater than the current value, move to the right
-            new_node = &((*new_node)->rb_right);
-        }
-        else { //Otherwise, return an error code
-        	pr_err("HASH_TREE_ERROR: blake2b collision in red-black tree");
-            return -1;
-        }
-    }
-
-    //Now we add the new node, then tell the tree to rebalance
-    rb_link_node(&node_to_add->node, parent, new_node);
-    rb_insert_color(&node_to_add->node, root);
-
-    return 0;
-}
-
-/**
- * @brief Searches a red-black tree for a given blake2b hash, and returns a pointer to the page_metadata struct associated with it if found
- *
- * @param rb_root The root of the red-black tree to search
- * @param blake2b The blake2b value to look for
- */
-static struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b) {
-
-	struct rb_node* node = root->rb_node; //Start at the first node
-	
-	while(node) { //Loop through all the nodes
-		struct hash_tree_node* data = container_of(node, struct hash_tree_node, node); //Get the data of the current node
-		int result = memcmp(blake2b, data->value, BLAKE2B_512_HASH_SIZE); //Compare the desired blake2b with the value in the data
-		
-		if (result < 0) node = node->rb_left; //If our blake2b is less than the value in the current node, go left
-		else if (result > 0) node = node->rb_right; //Else go right
-		else return data; //If they're equal, return the current node
-	}
-	
-	return NULL; //If we get through all the nodes without finding what we want, return NULL
-}
 
 
 int sus_mod_htree(int flags) {
 	printk("Entering ioctl");
 	//u64 test_xxhash = 346236456;
-	//u8* test_blake = vmalloc(sizeof(u64), GFP_KERNEL);
+	//u8* test_blake = vmalloc(sizeof(u64));
 	
 	//struct first_level_bucket* test_first_level = first_level_init();
 	//printk("Initialized first_level_bucket");
