@@ -223,7 +223,16 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
                 cloned_task->pid, iter->pid);
         }
 
+        /*
+         * NOTE: Here we explicitly set the frozen flag to false. This is done
+         * for no good reason at all. Without this, sometimes (< 1/4), we will
+         * get a warning about a negative reference count in the cgroup freezer.
+         * Due to the checking logical in the freezer, this turns out to be
+         * benign, but this flag avoids the warning altogether. If the reason
+         * for the warning is found, remove this line.
+         */
         cloned_task->frozen = false;
+
         wake_up_new_task(cloned_task);
         resume_task(cloned_task);
     }
@@ -347,7 +356,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
     forked_task = sus_kernel_clone(task, args);
 
-    if (forked_task == NULL)
+    if (unlikely(forked_task == NULL))
     {
         pr_err("ufrk: failed to fork task, counter: %d\n", task_id);
         return -EACCES;

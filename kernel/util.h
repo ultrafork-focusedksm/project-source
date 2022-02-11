@@ -22,6 +22,12 @@ struct task_struct* find_task_from_pid(pid_t pid);
  *  functions. Cannot be used to determine the actual time, only used for
  *  deltas.
  *
+ *  This function uses the sched_clock, a high speed clock used in scheduling.
+ *  sched_clock sacrafices accuracy in favor of speed, so the this clock does
+ *  not typically have nanosecond accuracy, but we largely don't care about
+ *  that in this application. It would be reasonable to trust this clock to
+ *  have microsecond resolution.
+ *
  *  @return nanosecond uptime counter
  */
 u64 sus_time_nanos(void);

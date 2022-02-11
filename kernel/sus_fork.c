@@ -186,6 +186,14 @@ static void delayed_free_task(struct task_struct* tsk)
         free_task(tsk);
 }
 
+/**
+ * SuS implementation of copy_process. The main difference between the
+ * copy_process routine and this routine is that this function takes
+ * a target process. In the kernel/fork.c copy_process, this target process
+ * is implicitly 'current'. This function is extracted to the module for ease
+ * of modification, since it needs to be kept in sync with the kernel's
+ * implementation.
+ */
 static struct task_struct* sus_copy_process(struct task_struct* target,
                                             int trace, int node,
                                             struct kernel_clone_args* args)
@@ -312,7 +320,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     retval = -ERESTARTNOINTR;
     if (task_sigpending(target))
     {
-        pr_err("sus_copy_process: target is SIGPENDING\n");
+        pr_info("sus_copy_process: target is SIGPENDING\n");
         // TODO: probably don't want this to be commented out
         /* goto fork_out; */
     }
