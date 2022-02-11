@@ -15,10 +15,20 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 
+// mnemonic macros to clarify the possible valus for
+// task_walk_context->is_process.
+#define TOPMOST_UNINITIALIZED 0
+#define TOPMOST_TASK 1
+#define NON_TOPMOST_TASK 2
+
+/**
+ * Thread or process, kept in task_walk_context for each task being cloned.
+ */
 enum task_type
 {
-    TASK_THREAD,
-    TASK_PROCESS
+    // thread = 0, process = 1, this is important for logic using this value
+    TASK_THREAD = 0,
+    TASK_PROCESS = 1
 };
 
 /**
@@ -37,6 +47,7 @@ struct pid_translation_table
 {
     size_t length;
     size_t cursor;
+    // variable size, must be last
     struct pid_translation translations[];
 };
 
@@ -55,6 +66,7 @@ struct task_walk_context
     /** Flag indicating this processes status as the 'root' process in the
      * Ultrafork group.*/
     u8 is_topmost;
+    /** Indicates if the task is a process or thread. See task_type enum. */
     u8 is_process;
 };
 
@@ -90,11 +102,11 @@ static void make_new_task_node(struct task_struct* task,
     node->task = task;
     INIT_LIST_HEAD(&node->list);
 
-    if (metadata->is_topmost == 0)
+    if (metadata->is_topmost == TOPMOST_UNINITIALIZED)
     {
         pr_info("ufrk: topmost\n");
-        node->is_topmost = 1;
-        metadata->is_topmost = 2;
+        node->is_topmost = TOPMOST_TASK;
+        metadata->is_topmost = NON_TOPMOST_TASK;
     }
     metadata->task_count++;
     node->is_process = is_process;
@@ -360,7 +372,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
         pr_info("ufrk: %d is child of %d\n", iter->pid, task->pid);
     }
 
-    if (ctx->is_topmost == 1)
+    if (ctx->is_topmost == TOPMOST_TASK)
     {
         pr_info("rfork: topmost process, %d reparented to %d\n",
                 forked_task->pid, task->parent->pid);
@@ -501,9 +513,8 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     u64 start;
     struct task_struct* parent;
     struct pid_translation_table* tt;
-    u64 start, end;
     struct task_walk_context wctx = {
-        .task = NULL, .is_topmost = 0, .task_count = 0};
+        .task = NULL, .is_topmost = TOPMOST_UNINITIALIZED, .task_count = 0};
     INIT_LIST_HEAD(&wctx.list);
 
     if (pid < 1)
