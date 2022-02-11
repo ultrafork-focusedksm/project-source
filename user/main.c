@@ -52,7 +52,17 @@ static void print_bytes(uint8_t* input, size_t size)
     printf("\n");
 }
 
-static inline void fail_fast()
+/**
+ * Function for terminating a process with a single instruction. This is an
+ * ugly hack to look at the traps message the kernel prints, which the IP and
+ * SP values, without screwing them up by jumping away from the interesting
+ * area.
+ *
+ * This function _needs_ to be inlined,  otherwise it is useless.
+ *
+ * Obviously, this only supports x86.
+ */
+static inline __attribute__((always_inline)) void fail_fast()
 {
     __asm__("ud2");
 }
@@ -83,7 +93,6 @@ static void ufrk_fork_test(int fd, bool threading)
         sus_ufrk_fork(fd, getpid(), 0);
         // fail_fast();
         printf("Survived ufrk: %d\n", getpid());
-
 
         sleep(PROCESS_SLEEP_TIME);
     }
