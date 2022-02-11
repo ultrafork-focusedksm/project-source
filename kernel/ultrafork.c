@@ -15,6 +15,12 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 
+enum task_type
+{
+    TASK_THREAD,
+    TASK_PROCESS
+};
+
 /**
  * Single entry mapping between original and forked process IDs.
  */
@@ -67,6 +73,13 @@ static struct recursive_task_walker rfork_resume_walker = {
     .task_handler = recursive_task_resume,
 };
 
+static struct kernel_clone_args process_clone_args = {.exit_signal = SIGCHLD};
+
+static struct kernel_clone_args thread_clone_args = {
+    .flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SYSVSEM | CLONE_SIGHAND |
+             CLONE_THREAD | CLONE_SETTLS | CLONE_PARENT_SETTID |
+             CLONE_CHILD_CLEARTID | 0};
+
 static void make_new_task_node(struct task_struct* task,
                                struct task_walk_context* metadata,
                                u8 is_process)
@@ -98,16 +111,18 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
     pr_info("%s, pid=%d, tid=%d\n", task->comm, task->pid, task_pid_vnr(task));
     suspend_task(task);
 
-    make_new_task_node(task, ctx, 1);
+    make_new_task_node(task, ctx, TASK_PROCESS);
 
     for_each_thread(task, thread)
     {
-        pr_info("thread: pid=%d, tid=%d\n", thread->pid, task_pid_vnr(thread));
-        make_new_task_node(thread, ctx, 0);
+        if (task->pid != task_pid_vnr(thread))
+        {
+            make_new_task_node(thread, ctx, TASK_THREAD);
 
-        pr_info("thread %d has pid %d, parent %d and real_parent %d\n",
-                task_pid_vnr(thread), thread->pid, thread->parent->pid,
-                thread->real_parent->pid);
+            pr_info("thread %d has pid %d, parent %d and real_parent %d\n",
+                    task_pid_vnr(thread), thread->pid, thread->parent->pid,
+                    thread->real_parent->pid);
+        }
     }
 
     return RECURSIVE_TASK_WALKER_CONTINUE;
@@ -177,6 +192,7 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
     struct task_struct* cloned_task;
     struct task_struct* iter;
     size_t cursor;
+
     // wake up new processes
     for (cursor = 0; cursor < tt->cursor; cursor++)
     {
@@ -225,7 +241,6 @@ static int rebuild_siblings(struct pid_translation_table* tt)
 
     for (cursor = 0; cursor < tt->cursor; cursor++)
     {
-
         // iterate through each entry of the now-complete translation table.
 
         task = find_task_from_pid(tt->translations[cursor].old_pid);
@@ -301,7 +316,16 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
     struct task_struct* forked_task;
     struct list_head* pos;
     struct list_head* q;
-    struct kernel_clone_args args = {.exit_signal = SIGCHLD};
+    struct kernel_clone_args* args;
+
+    if (ctx->is_process)
+    {
+        args = &process_clone_args;
+    }
+    else
+    {
+        args = &thread_clone_args;
+    }
 
     list_for_each_entry(iter, &task->children, sibling)
     {
@@ -309,7 +333,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
         pr_info("ufrk: %d is child of %d\n", iter->pid, task->pid);
     }
 
-    forked_task = sus_kernel_clone(task, &args);
+    forked_task = sus_kernel_clone(task, args);
 
     if (forked_task == NULL)
     {
@@ -333,7 +357,6 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
     list_for_each_entry(iter, &task->children, sibling)
     {
-
         pr_info("ufrk: %d is child of %d\n", iter->pid, task->pid);
     }
 
@@ -349,18 +372,33 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
         forked_task->signal->has_child_subreaper =
             task->real_parent->signal->has_child_subreaper ||
             task->real_parent->signal->is_child_subreaper;
-
-        /* INIT_LIST_HEAD(&forked_task->sibling); */
-        /* list_add(&forked_task->sibling, &task->parent->children); */
     }
     else
     {
-        pid_t new_pid = translate_pid(ctx->tt, task->parent->pid);
-        pr_info("rfork: not-topmost, %d reparented to %d\n", forked_task->pid,
-                new_pid);
 
-        forked_task->parent = find_task_from_pid(new_pid);
-        forked_task->real_parent = forked_task->parent;
+        if (ctx->is_process == TASK_THREAD)
+        {
+            pid_t new_pid = translate_pid(ctx->tt, task->pid);
+            pr_info("rfork: not-topmost, %d reparented to %d\n",
+                    forked_task->pid, new_pid);
+
+            pr_info("rfork: a thread %d\n", forked_task->pid);
+            forked_task->real_parent = find_task_from_pid(new_pid);
+            BUG_ON(NULL == forked_task->real_parent);
+
+            forked_task->parent = forked_task->parent;
+            pr_info("rfork_thread: real parent set to %d\n",
+                    forked_task->real_parent->pid);
+        }
+        else
+        {
+            pid_t new_pid = translate_pid(ctx->tt, task->parent->pid);
+            pr_info("rfork: not-topmost, %d reparented to %d\n",
+                    forked_task->pid, new_pid);
+            pr_info("rfork: a process %d\n", forked_task->pid);
+            forked_task->parent = find_task_from_pid(new_pid);
+            forked_task->real_parent = forked_task->parent;
+        }
 
         forked_task->signal->has_child_subreaper =
             forked_task->real_parent->signal->has_child_subreaper ||
@@ -463,6 +501,7 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     u64 start;
     struct task_struct* parent;
     struct pid_translation_table* tt;
+    u64 start, end;
     struct task_walk_context wctx = {
         .task = NULL, .is_topmost = 0, .task_count = 0};
     INIT_LIST_HEAD(&wctx.list);
