@@ -450,6 +450,7 @@ static void clean_parent_children(struct task_struct* parent)
 
 int sus_mod_fork(unsigned long pid, unsigned char flags)
 {
+    u64 start;
     struct task_struct* parent;
     struct pid_translation_table* tt;
     struct task_walk_context wctx = {
@@ -468,6 +469,7 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
         return -EINVAL;
     }
 
+    start = sus_time_nanos();
     pr_info("ufrk: locking process group\n");
     walk_task(parent, &wctx, &rtask_logger);
 
@@ -498,6 +500,6 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     pr_info("ufrk: releasing translation table memory\n");
     kfree(tt);
 
-    pr_info("ufrk: return to caller\n");
+    pr_info("ufrk: return to caller, took %lldns\n", sus_time_nanos() - start);
     return 0;
 }

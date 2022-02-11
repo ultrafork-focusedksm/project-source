@@ -8,18 +8,10 @@
 struct task_struct* find_task_from_pid(pid_t pid);
 
 /**
- *  Returns the jiffy count. Used to compute time taken to execute
- *  functions.
+ *  Returns the nanosecond count. Used to compute time taken to execute
+ *  functions. Cannot be used to determine the actual time, only used for
+ *  deltas.
  */
-u64 sus_time_jiffies(void);
-
-/**
- * Computes the difference between the two jiffy counts.
- *
- * difference = large_jiffies - small_jiffies
- *
- * @return timespec64 containing the difference.
- */
-struct timespec64 sus_micro_difference(u64 large_jiffers, u64 small_jiffies);
+u64 sus_time_nanos(void);
 
 #endif
