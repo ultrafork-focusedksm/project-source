@@ -87,6 +87,10 @@ static struct recursive_task_walker rfork_resume_walker = {
 
 static struct kernel_clone_args process_clone_args = {.exit_signal = SIGCHLD};
 
+/*
+ * Flags used to start a thread. These are taken from the pthread_create
+ * implementation in glibc.
+ */
 static struct kernel_clone_args thread_clone_args = {
     .flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SYSVSEM | CLONE_SIGHAND |
              CLONE_THREAD | CLONE_SETTLS | CLONE_PARENT_SETTID |
@@ -131,9 +135,10 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
         {
             make_new_task_node(thread, ctx, TASK_THREAD);
 
-            pr_info("thread %d has pid %d, parent %d and real_parent %d\n",
-                    task_pid_vnr(thread), thread->pid, thread->parent->pid,
-                    thread->real_parent->pid);
+            pr_info(
+                "thread %d has pid %d, parent %d and real_parent %d, tgid=%d\n",
+                task_pid_vnr(thread), thread->pid, thread->parent->pid,
+                thread->real_parent->pid, thread->tgid);
         }
     }
 
@@ -211,10 +216,11 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
         cloned_task_pid = tt->translations[cursor].new_pid;
         cloned_task = find_task_from_pid(cloned_task_pid);
 
-        pr_info("ufrk: wake_cloned_processes: waking process %d. Parent=%d, "
-                "RealParent=%d\n",
-                cloned_task->pid, cloned_task->parent->pid,
-                cloned_task->real_parent->pid);
+        pr_info("ufrk: wake_cloned_processes: waking process %d,%d. Parent=%d, "
+                "RealParent=%d, tgid=%d\n",
+                cloned_task->pid, task_pid_vnr(cloned_task),
+                cloned_task->parent->pid, cloned_task->real_parent->pid,
+                cloned_task->tgid);
 
         list_for_each_entry(iter, &cloned_task->children, sibling)
         {
@@ -330,6 +336,21 @@ static int rebuild_siblings(struct pid_translation_table* tt)
     return 0;
 }
 
+/**
+ * Attempts to look up the given PID in the translation table, if the PID is
+ * not present in the table, it is returned, otherwise the mapped PID is
+ * returned.
+ */
+static pid_t try_translate_pid(struct pid_translation_table* tt, pid_t pid)
+{
+    pid_t new_pid = translate_pid(tt, pid);
+    if (0 == new_pid)
+    {
+        new_pid = pid;
+    }
+    return new_pid;
+}
+
 static int recursive_fork(struct task_struct* task, u32 task_id,
                           struct task_walk_context* ctx)
 {
@@ -399,7 +420,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
         if (ctx->is_process == TASK_THREAD)
         {
-            pid_t new_pid = translate_pid(ctx->tt, task->pid);
+            pid_t new_pid = try_translate_pid(ctx->tt, task->parent->pid);
             pr_info("rfork: not-topmost, %d reparented to %d\n",
                     forked_task->pid, new_pid);
 
@@ -407,9 +428,18 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
             forked_task->real_parent = find_task_from_pid(new_pid);
             BUG_ON(NULL == forked_task->real_parent);
 
-            forked_task->parent = forked_task->parent;
-            pr_info("rfork_thread: real parent set to %d\n",
-                    forked_task->real_parent->pid);
+            forked_task->parent = forked_task->real_parent;
+
+            forked_task->tgid = try_translate_pid(ctx->tt, task->tgid);
+
+            pr_info(
+                "rfork_thread %d: original real_parent=%d, parent=%d, tgid=%d",
+                task->pid, task->real_parent->pid, task->parent->pid,
+                forked_task->tgid);
+            pr_info(
+                "rfork_thread %d: cloned real_parent=%d, parent=%d, tgid=%d",
+                new_pid, forked_task->real_parent->pid,
+                forked_task->parent->pid, forked_task->tgid);
         }
         else
         {
@@ -418,6 +448,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
                     forked_task->pid, new_pid);
             pr_info("rfork: a process %d\n", forked_task->pid);
             forked_task->parent = find_task_from_pid(new_pid);
+            BUG_ON(NULL == forked_task->parent);
             forked_task->real_parent = forked_task->parent;
         }
 
@@ -481,17 +512,12 @@ static void task_list_cleanup(struct task_walk_context* ctx)
     {
         struct task_walk_context* entry =
             list_entry(pos, struct task_walk_context, list);
-        if (likely(NULL != entry))
-        {
-            pr_info("ufrk: cleanup: visiting %d,%d\n", entry->task->pid,
-                    entry->task->tgid);
-            list_del_init(pos);
-            kfree(entry);
-        }
-        else
-        {
-            pr_err("ufrk: cleanup: ignoring NULL entry\n");
-        }
+        BUG_ON(NULL == entry);
+
+        pr_info("ufrk: cleanup: visiting %d,%d\n", entry->task->pid,
+                entry->task->tgid);
+        list_del_init(pos);
+        kfree(entry);
     }
 }
 

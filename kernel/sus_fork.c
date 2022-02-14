@@ -5,6 +5,14 @@
  * split like this because it is much easier to develop in a module than by
  * directly patching the kernel. The bulk of the code is in this file, so
  * hopefully future modifications will be made easier by this design decision.
+ *
+ * Limitations:
+ *
+ * - The kernel/fork.c implementation has fork bomb protection, which does
+ *   not exist here. That is not really an issue, because in order to create
+ *   a fork bomb, the attacker would need to have shell access to a user
+ *   with permissions to access the docker daemon (i.e. start and stop
+ *   containers), which is equivalent to root access anyway.
  */
 #include <linux/anon_inodes.h>
 #include <linux/audit.h>
@@ -318,11 +326,14 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     recalc_sigpending();
     spin_unlock_irq(&target->sighand->siglock);
     retval = -ERESTARTNOINTR;
+
+    /*
+     * In normal fork, this is an error test, but since we are using SIGSTOP
+     * to suspend the processes, we can't fail on this check.
+     */
     if (task_sigpending(target))
     {
         pr_info("sus_copy_process: target is SIGPENDING\n");
-        // TODO: probably don't want this to be commented out
-        /* goto fork_out; */
     }
 
     retval = -ENOMEM;
