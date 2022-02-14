@@ -101,7 +101,7 @@ int main(void)
             addrs[i] = aligned_alloc(getpagesize(), getpagesize());
             memset(addrs[i], 0xaa, getpagesize());
         }
-        sleep(5);
+        sleep(3);
         uint8_t blake2b_out[BLAKE2B_OUTBYTES];
         for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
         {
