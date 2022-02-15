@@ -3,6 +3,6 @@
 
 #include <linux/types.h>
 
-ssize_t cow_count(pid_t proc);
+int cow_count(pid_t proc, size_t*, size_t*);
 
 #endif

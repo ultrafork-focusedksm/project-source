@@ -25,10 +25,7 @@
     (8 * NUM_PIDS * PAGES_PER_PID) // 8 byte pointers for each segment
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
-#define PROCESS_SLEEP_TIME 60
-#define PS_COMMAND "ps -o rss,vsz,drs,trs "
-#define PS_FORMAT PS_COMMAND "%d"
-#define PS_COMMAND_LEN (sizeof(PS_COMMAND) + 8)
+#define PROCESS_SLEEP_TIME 60 * 5
 #define BYTES_TO_KILO(x) (x / 1024)
 
 enum sus_tester_mode
@@ -78,10 +75,13 @@ static void* thread_function(void* arg)
 
 static void ufrk_fork_test(int fd, bool threading)
 {
+
     pid_t pid = fork();
 
     if (pid > 0)
     {
+        /* void* ret = malloc(8192UL * 1024 * 1024); */
+        /* printf("%p\n", ret); */
         // parent process
         // IMPORTANT: we pass getpid() here, not the pid of the child.
         printf("Parent PID: %d\n", getpid());
@@ -116,17 +116,19 @@ static void ufrk_fork_test(int fd, bool threading)
 
 static void cow_count(int fd, pid_t cow_pid)
 {
-    char ps_command_buffer[PS_COMMAND_LEN];
-    ssize_t ret = sus_cow_counter(fd, cow_pid);
+    size_t cow;
+    size_t vm;
+    int ret = sus_cow_counter(fd, cow_pid, &cow, &vm);
 
-    printf("Cow Counter: Pid %d has %ldkB COW memory\n", cow_pid,
-           BYTES_TO_KILO(ret));
-    snprintf(ps_command_buffer, PS_COMMAND_LEN, PS_FORMAT, getpid());
-    int status = system(ps_command_buffer);
-
-    if (status != 0)
+    if (ret == 0)
     {
-        fprintf(stderr, "Unable to run ps command\n");
+        printf("Cow Counter: Pid %d has %ld kB COW memory, %ld kB Virtual "
+               "Memory\n",
+               cow_pid, BYTES_TO_KILO(cow), BYTES_TO_KILO(vm));
+    }
+    else
+    {
+        fprintf(stderr, "Unable to run cow counter, error %d\n", errno);
     }
 }
 

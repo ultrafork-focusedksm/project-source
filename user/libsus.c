@@ -67,7 +67,7 @@ int sus_ufrk_fork(int fd, pid_t pid, uint8_t flags)
     }
 }
 
-ssize_t sus_cow_counter(int fd, pid_t pid)
+int sus_cow_counter(int fd, pid_t pid, size_t* cow, size_t* vm)
 {
     if (pid <= 0)
     {
@@ -76,13 +76,17 @@ ssize_t sus_cow_counter(int fd, pid_t pid)
     struct sus_ctx ctx;
     ctx.mode = SUS_MODE_COW;
     ctx.cow.pid = pid;
+    ctx.cow.cow_bytes = 0;
+    ctx.cow.vm_bytes = 0;
     ssize_t ret = ioctl(fd, SUS_MOD_COW_COUNTER, &ctx);
-    if (ret == -1)
+    if (ret < 0)
     {
         return -errno;
     }
     else
     {
+        *cow = ctx.cow.cow_bytes;
+        *vm = ctx.cow.vm_bytes;
         return ret;
     }
 }

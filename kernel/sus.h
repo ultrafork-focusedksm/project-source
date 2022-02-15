@@ -3,6 +3,7 @@
 
 #ifdef SUS_USERSPACE
 #include <sys/ioctl.h>
+#include <stddef.h>
 #else
 #include <linux/ioctl.h>
 #endif
@@ -33,6 +34,8 @@ struct hash_tree_ctx
 struct cow_ctx
 {
     unsigned long pid;
+    size_t cow_bytes;
+    size_t vm_bytes;
 };
 
 struct sus_ctx

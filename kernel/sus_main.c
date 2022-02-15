@@ -73,7 +73,19 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
     case SUS_MOD_COW_COUNTER:
         if (SUS_MODE_COW == ctx.mode)
         {
-            ret = cow_count(ctx.cow.pid);
+            size_t cow_bytes;
+            size_t vm_bytes;
+            size_t error;
+            ret = cow_count(ctx.cow.pid, &cow_bytes, &vm_bytes);
+            ctx.cow.cow_bytes = cow_bytes;
+            ctx.cow.vm_bytes = vm_bytes;
+
+            error = copy_to_user((struct sus_ctx*)arg, &ctx,
+                                 sizeof(struct sus_ctx));
+            if (error != 0)
+            {
+                pr_err("Unable to copy cow counter result to userpsace");
+            }
         }
         break;
     default:

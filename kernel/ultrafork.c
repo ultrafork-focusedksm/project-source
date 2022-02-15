@@ -455,11 +455,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
             forked_task->tgid = try_translate_pid(ctx->tt, task->tgid);
 
-            pr_info("rfork_thread parent_exec_id=%lld, self_exec_id=%lld",
-                    task->parent_exec_id, task->self_exec_id);
-            forked_task->parent_exec_id = forked_task->parent->self_exec_id;
-            pr_info("rfork_thread parent_exec_id=%lld, self_exec_id=%lld",
-                    forked_task->parent_exec_id, forked_task->self_exec_id);
+            forked_task->parent_exec_id = forked_task->parent->parent_exec_id;
 
             new_pid = try_translate_pid(ctx->tt, task->group_leader->pid);
             forked_task->group_leader = find_task_from_pid(new_pid);

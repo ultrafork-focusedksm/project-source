@@ -15,18 +15,19 @@
  * It makes no effort to determine how much (if any) is shared with any
  * child processes.
  *
- * @param proc Process ID to scan
- * @return -errno in the event of error, otherwise the number of bytes COW
- * shared with this process.
+ * @param proc Process ID to examine.
+ * @param cow_bytes Pointer to write copy-on-write byte count to.
+ * @param vm_bytes Pointer to write virtual memory byte count to.
+ *
+ * @return 0 for success, -1 otherwise.
  */
-ssize_t cow_count(pid_t proc)
+int cow_count(pid_t proc, size_t* cow_bytes, size_t* vm_bytes)
 {
     struct mm_struct* mm;
     struct vm_area_struct* vma;
     struct list_head* pos;
     struct anon_vma_chain* chain;
     struct task_struct* task = find_task_from_pid(proc);
-    ssize_t cow_memory = 0;
 
     if (NULL == task)
     {
@@ -55,12 +56,21 @@ ssize_t cow_count(pid_t proc)
             list_for_each(pos, &vma->anon_vma_chain)
             {
                 chain = list_entry(pos, struct anon_vma_chain, same_vma);
-                cow_memory += chain->vma->vm_end - chain->vma->vm_start;
+                *cow_bytes += (chain->vma->vm_end - chain->vma->vm_start);
+
+                // if there are multiple entries on a chain for a single VM
+                // area, it means the memory area has been passed down though
+                // multiple processes (more than just the parent). We only
+                // want to count such regions once, to avoid over-calculating
+                // the size of the COW regions.
+                break;
             }
+
+            *vm_bytes += vma->vm_end - vma->vm_start;
         }
         up_read(&mm->mmap_lock);
-        pr_debug("%d total COW memory bytes %ld\n", task->pid, cow_memory);
+        pr_debug("%d total COW memory bytes %ld\n", task->pid, *cow_bytes);
     }
 
-    return cow_memory;
+    return 0;
 }
