@@ -509,35 +509,65 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     shm_init_task(p);
     retval = security_task_alloc(p, clone_flags);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d security_task_alloc failed", p->pid);
         goto bad_fork_cleanup_audit;
+    }
     retval = sus_copy_semundo(clone_flags, p, target);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_semundo failed", p->pid);
         goto bad_fork_cleanup_security;
+    }
     retval = sus_copy_files(clone_flags, p, target);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_files failed", p->pid);
         goto bad_fork_cleanup_semundo;
+    }
     retval = sus_copy_fs(clone_flags, p, target);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_fs failed", p->pid);
         goto bad_fork_cleanup_files;
+    }
     retval = sus_copy_sighand(clone_flags, p, target);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_sighand failed", p->pid);
         goto bad_fork_cleanup_fs;
+    }
     retval = sus_copy_signal(clone_flags, p, target);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_signal failed", p->pid);
         goto bad_fork_cleanup_sighand;
+    }
     retval = sus_copy_mm(clone_flags, p, target);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_mm failed", p->pid);
         goto bad_fork_cleanup_signal;
+    }
     retval = copy_namespaces(clone_flags, p);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_namespaces failed", p->pid);
         goto bad_fork_cleanup_mm;
+    }
     retval = sus_copy_io(clone_flags, p);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_io failed", p->pid);
         goto bad_fork_cleanup_namespaces;
+    }
     retval = sus_copy_thread(clone_flags, args->stack, args->stack_size, p,
                              target, args->tls);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d copy_thread failed", p->pid);
         goto bad_fork_cleanup_io;
+    }
 
     stackleak_task_init(p);
 
@@ -547,6 +577,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
                         args->set_tid_size);
         if (IS_ERR(pid))
         {
+            pr_err("sus_copy_process: %d alloc_pid failed", p->pid);
             retval = PTR_ERR(pid);
             goto bad_fork_cleanup_thread;
         }
@@ -561,7 +592,10 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     {
         retval = get_unused_fd_flags(O_RDWR | O_CLOEXEC);
         if (retval < 0)
+        {
+            pr_err("sus_copy_process: %d get_unused_fd_flags failed", p->pid);
             goto bad_fork_free_pid;
+        }
 
         pidfd = retval;
 
@@ -570,13 +604,17 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
         {
             put_unused_fd(pidfd);
             retval = PTR_ERR(pidfile);
+            pr_err("sus_copy_process: %d fork_get_pidfile failed", p->pid);
             goto bad_fork_free_pid;
         }
         get_pid(pid); /* held by pidfile now */
 
         retval = put_user(pidfd, args->pidfd);
         if (retval)
+        {
+            pr_err("sus_copy_process: %d put_user failed", p->pid);
             goto bad_fork_put_pidfd;
+        }
     }
 
 #ifdef CONFIG_BLOCK
@@ -634,7 +672,10 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
      */
     retval = sus_cgroup_can_fork(target, p, args);
     if (retval)
+    {
+        pr_err("sus_copy_process: %d cgroup_can_fork failed", p->pid);
         goto bad_fork_put_pidfd;
+    }
 
     /*
      * From this point on we must avoid any synchronous user-space
@@ -688,6 +729,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     if (unlikely(!(ns_of_pid(pid)->pid_allocated & PIDNS_ADDING)))
     {
         retval = -ENOMEM;
+        pr_err("sus_copy_process: %d dying namespace, aborting", p->pid);
         goto bad_fork_cancel_cgroup;
     }
 
@@ -713,6 +755,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
         init_task_pid(p, PIDTYPE_PID, pid);
         if (thread_group_leader(p))
         {
+            pr_info("sus_copy_process: %d is thread_group_leader", p->pid);
             init_task_pid(p, PIDTYPE_TGID, pid);
             init_task_pid(p, PIDTYPE_PGID, task_pgrp(target));
             init_task_pid(p, PIDTYPE_SID, task_session(target));
@@ -741,12 +784,14 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
         }
         else
         {
+            pr_info("sus_copy_process: %d is NOT thread_group_leader", p->pid);
             target->signal->nr_threads++;
             atomic_inc(&target->signal->live);
             refcount_inc(&target->signal->sigcnt);
+
             task_join_group_stop(p);
-            list_add_tail_rcu(&p->thread_group, &p->group_leader->thread_group);
-            list_add_tail_rcu(&p->thread_node, &p->signal->thread_head);
+            /* list_add_tail_rcu(&p->thread_group, &p->group_leader->thread_group); */
+            /* list_add_tail_rcu(&p->thread_node, &p->signal->thread_head); */
         }
         attach_pid(p, PIDTYPE_PID);
         //        nr_threads++;
@@ -765,7 +810,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     // trace_task_newtask(p, clone_flags);
     sus_uprobe_copy_process(p, clone_flags, target);
 
-    copy_oom_score_adj(clone_flags, p);
+    sus_copy_oom_score_adj(clone_flags, p, target);
 
     return p;
 bad_fork_cancel_cgroup:

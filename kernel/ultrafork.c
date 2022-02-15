@@ -1,3 +1,9 @@
+/*
+ * Main implementation file for Ultrafork.
+ * author: Adrian Curless <awcurless@wpi.edu>
+ *
+ *
+ */
 #include "ultrafork.h"
 #include "recursive_task_walker.h"
 #include "sus_fork.h"
@@ -95,6 +101,16 @@ static struct kernel_clone_args thread_clone_args = {
     .flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SYSVSEM | CLONE_SIGHAND |
              CLONE_THREAD | CLONE_SETTLS | CLONE_PARENT_SETTID |
              CLONE_CHILD_CLEARTID | 0};
+
+/**
+ * Simple method of determining if a task is a thread or process in most cases.
+ * This function may not work on strangely configured free-form constructs
+ * created with clone().
+ */
+static inline bool is_thread(struct task_struct* t)
+{
+    return t->pid != t->tgid;
+}
 
 static void make_new_task_node(struct task_struct* task,
                                struct task_walk_context* metadata,
@@ -240,7 +256,10 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
         cloned_task->frozen = false;
 
         wake_up_new_task(cloned_task);
-        resume_task(cloned_task);
+        if (!is_thread(cloned_task))
+        {
+            resume_task(cloned_task);
+        }
     }
 }
 
@@ -275,35 +294,38 @@ static int rebuild_siblings(struct pid_translation_table* tt)
         cloned_task = find_task_from_pid(cloned_task_pid);
         pr_info("iterating on pid %d\n", cloned_task->pid);
 
-        if (0 == cursor)
+        if (!is_thread(cloned_task))
         {
-            pr_info(
-                "ufrk: rebuild_siblings: topmost adding %d as child of %d\n",
-                cloned_task->pid, cloned_task->parent->pid);
-            INIT_LIST_HEAD(&cloned_task->sibling);
-            list_add(&cloned_task->sibling, &cloned_task->parent->children);
-        }
-
-        list_for_each_safe(pos, q, &task->children)
-        {
-            iter = list_entry(pos, struct task_struct, sibling);
-            if (likely(NULL != iter))
+            if (0 == cursor)
             {
-                pr_info("ufrk: rechild: [%d] visiting pid %d\n", task->pid,
-                        iter->pid);
+                pr_info("ufrk: rebuild_siblings: topmost adding %d as child of "
+                        "%d\n",
+                        cloned_task->pid, cloned_task->parent->pid);
+                INIT_LIST_HEAD(&cloned_task->sibling);
+                list_add(&cloned_task->sibling, &cloned_task->parent->children);
+            }
 
-                cloned_iter_pid = translate_pid(tt, iter->pid);
-                if (likely(0 != cloned_iter_pid))
+            list_for_each_safe(pos, q, &task->children)
+            {
+                iter = list_entry(pos, struct task_struct, sibling);
+                if (likely(NULL != iter))
                 {
-                    cloned_iter_task = find_task_from_pid(cloned_iter_pid);
-                    if (likely(NULL != cloned_iter_task))
+                    pr_info("ufrk: rechild: [%d] visiting pid %d\n", task->pid,
+                            iter->pid);
+
+                    cloned_iter_pid = translate_pid(tt, iter->pid);
+                    if (likely(0 != cloned_iter_pid))
                     {
-                        pr_info(
-                            "ufrk: resibling: [%d] adding pid %d to children\n",
-                            cloned_task->pid, cloned_iter_pid);
-                        INIT_LIST_HEAD(&cloned_iter_task->sibling);
-                        list_add(&cloned_iter_task->sibling,
-                                 &cloned_task->children);
+                        cloned_iter_task = find_task_from_pid(cloned_iter_pid);
+                        if (likely(NULL != cloned_iter_task))
+                        {
+                            pr_info("ufrk: resibling: [%d] adding pid %d to "
+                                    "children\n",
+                                    cloned_task->pid, cloned_iter_pid);
+                            INIT_LIST_HEAD(&cloned_iter_task->sibling);
+                            list_add(&cloned_iter_task->sibling,
+                                     &cloned_task->children);
+                        }
                     }
                 }
             }
@@ -420,6 +442,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
         if (ctx->is_process == TASK_THREAD)
         {
+            // we are forking a thread
             pid_t new_pid = try_translate_pid(ctx->tt, task->parent->pid);
             pr_info("rfork: not-topmost, %d reparented to %d\n",
                     forked_task->pid, new_pid);
@@ -432,17 +455,36 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
             forked_task->tgid = try_translate_pid(ctx->tt, task->tgid);
 
-            pr_info(
-                "rfork_thread %d: original real_parent=%d, parent=%d, tgid=%d",
-                task->pid, task->real_parent->pid, task->parent->pid,
-                forked_task->tgid);
-            pr_info(
-                "rfork_thread %d: cloned real_parent=%d, parent=%d, tgid=%d",
-                new_pid, forked_task->real_parent->pid,
-                forked_task->parent->pid, forked_task->tgid);
+            pr_info("rfork_thread parent_exec_id=%lld, self_exec_id=%lld",
+                    task->parent_exec_id, task->self_exec_id);
+            forked_task->parent_exec_id = forked_task->parent->self_exec_id;
+            pr_info("rfork_thread parent_exec_id=%lld, self_exec_id=%lld",
+                    forked_task->parent_exec_id, forked_task->self_exec_id);
+
+            new_pid = try_translate_pid(ctx->tt, task->group_leader->pid);
+            forked_task->group_leader = find_task_from_pid(new_pid);
+
+            BUG_ON(NULL == forked_task->group_leader);
+
+            list_add_tail_rcu(&forked_task->thread_group,
+                              &forked_task->group_leader->thread_group);
+            list_add_tail_rcu(&forked_task->thread_node,
+                              &forked_task->signal->thread_head);
+
+            pr_info("rfork_thread %d: original real_parent=%d, parent=%d, "
+                    "tgid=%d, group_leader=%d",
+                    task->pid, task->real_parent->pid, task->parent->pid,
+                    task->tgid, task->group_leader->pid);
+            pr_info("rfork_thread %d: cloned real_parent=%d, parent=%d, "
+                    "tgid=%d, group_leader=%d",
+                    forked_task->pid, forked_task->real_parent->pid,
+                    forked_task->parent->pid, forked_task->tgid,
+                    forked_task->group_leader->pid);
         }
         else
         {
+            // we are forking a process
+
             pid_t new_pid = translate_pid(ctx->tt, task->parent->pid);
             pr_info("rfork: not-topmost, %d reparented to %d\n",
                     forked_task->pid, new_pid);
@@ -450,11 +492,12 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
             forked_task->parent = find_task_from_pid(new_pid);
             BUG_ON(NULL == forked_task->parent);
             forked_task->real_parent = forked_task->parent;
-        }
 
-        forked_task->signal->has_child_subreaper =
-            forked_task->real_parent->signal->has_child_subreaper ||
-            forked_task->real_parent->signal->is_child_subreaper;
+            // we only edit the4 signal struct if we are a process
+            forked_task->signal->has_child_subreaper =
+                forked_task->real_parent->signal->has_child_subreaper ||
+                forked_task->real_parent->signal->is_child_subreaper;
+        }
     }
 
     // remove forked process from children
@@ -489,7 +532,10 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
  */
 static void suspend_task(struct task_struct* task)
 {
-    kill_pid(task_pid(task), SIGSTOP, 1);
+    if (!is_thread(task))
+    {
+        kill_pid(task_pid(task), SIGSTOP, 1);
+    }
 }
 
 /**
