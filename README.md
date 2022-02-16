@@ -2,6 +2,12 @@
 
 sudo apt install libb2-1 libb2-dev base-devel
 
-kernel config
+copy kernel config from mqp_sus_memory/linux into the kernel source directory
+run make menuconfig and make sure legacy ksm is enabled and address sanitizer is on
 
-kernel patch?
+run:
+sudo make -j $(nproc)
+sudo make modules_install
+sudo make install
+
+then reboot
