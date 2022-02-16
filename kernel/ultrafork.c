@@ -256,10 +256,10 @@ static void wake_cloned_processes(struct pid_translation_table* tt)
         cloned_task->frozen = false;
 
         wake_up_new_task(cloned_task);
-        if (!is_thread(cloned_task))
-        {
-            resume_task(cloned_task);
-        }
+        /* if (!is_thread(cloned_task)) */
+        /* { */
+        resume_task(cloned_task);
+        /* } */
     }
 }
 
@@ -455,12 +455,28 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
             new_pid = try_translate_pid(ctx->tt, task->group_leader->pid);
             forked_task->group_leader = find_task_from_pid(new_pid);
 
+            forked_task->signal = forked_task->parent->signal;
+            /* refcount_dec(&forked_task->parent->sighand->count); */
+            forked_task->parent->signal->nr_threads++;
+            atomic_inc(&forked_task->parent->signal->live);
+            refcount_inc(&forked_task->parent->signal->sigcnt);
+
+            sus_task_join_group_stop(forked_task, forked_task->parent);
+
+            forked_task->sighand = forked_task->parent->sighand;
+            refcount_inc(&forked_task->parent->sighand->count);
+
             BUG_ON(NULL == forked_task->group_leader);
 
             list_add_tail_rcu(&forked_task->thread_group,
                               &forked_task->group_leader->thread_group);
             list_add_tail_rcu(&forked_task->thread_node,
                               &forked_task->signal->thread_head);
+
+            pr_info("rfork_thread: %d preparing to replace mm\n",
+                    forked_task->pid);
+            sus_copy_mm(args->flags, forked_task, forked_task->parent);
+            pr_info("rfork_thread: %d replaced mm\n", forked_task->pid);
 
             pr_info("rfork_thread %d: original real_parent=%d, parent=%d, "
                     "tgid=%d, group_leader=%d",
@@ -523,10 +539,10 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
  */
 static void suspend_task(struct task_struct* task)
 {
-    if (!is_thread(task))
-    {
-        kill_pid(task_pid(task), SIGSTOP, 1);
-    }
+    /* if (!is_thread(task)) */
+    /* { */
+    kill_pid(task_pid(task), SIGSTOP, 1);
+    /* } */
 }
 
 /**

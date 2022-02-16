@@ -323,7 +323,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     spin_lock_irq(&target->sighand->siglock);
     if (!(clone_flags & CLONE_THREAD))
         hlist_add_head(&delayed.node, &target->signal->multiprocess);
-    recalc_sigpending();
+    sus_recalc_sigpending(target);
     spin_unlock_irq(&target->sighand->siglock);
     retval = -ERESTARTNOINTR;
 
@@ -785,12 +785,13 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
         else
         {
             pr_info("sus_copy_process: %d is NOT thread_group_leader", p->pid);
-            target->signal->nr_threads++;
-            atomic_inc(&target->signal->live);
-            refcount_inc(&target->signal->sigcnt);
+            /* target->signal->nr_threads++; */
+            /* atomic_inc(&target->signal->live); */
+            /* refcount_inc(&target->signal->sigcnt); */
 
-            task_join_group_stop(p);
-            /* list_add_tail_rcu(&p->thread_group, &p->group_leader->thread_group); */
+            /* sus_task_join_group_stop(p, target); */
+            /* list_add_tail_rcu(&p->thread_group,
+             * &p->group_leader->thread_group); */
             /* list_add_tail_rcu(&p->thread_node, &p->signal->thread_head); */
         }
         attach_pid(p, PIDTYPE_PID);
