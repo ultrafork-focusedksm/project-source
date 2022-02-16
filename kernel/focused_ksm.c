@@ -340,12 +340,9 @@ traverse_exit:
 static void combine(struct metadata_collection* list1,
                     struct metadata_collection* list2, unsigned long pid1)
 {
-
-    struct metadata_collection* curr_list1;
-    struct metadata_collection* curr_list2;
-    struct page* curr_page1;
-    struct page* curr_page2;
-    int code;   // replace page output code
+    struct metadata_collection *curr_list1, *curr_list2;
+    struct page *curr_page1, *curr_page2;
+    int code; // replace page output code
     int count;
 
     struct task_struct* task;
@@ -356,7 +353,7 @@ static void combine(struct metadata_collection* list1,
         pr_err("FKSM_ERROR: task struct not found");
     }
 
-    count=0;
+    count = 0;
     list_for_each_entry(curr_list1, &list1->list, list)
     {
         if (curr_list1->first)
@@ -375,13 +372,16 @@ static void combine(struct metadata_collection* list1,
                 curr_page1 = curr_list1->page_metadata.page;
                 curr_page2 = curr_list2->page_metadata.page;
 
+                // todo: test this with swapped order in signature
+                // todo: make sure we've got the right pte in this signature
+                // todo: describe how signature works in the report?
                 code =
-                    replace_page(curr_list1->page_metadata.vma, curr_page1,
-                                 curr_page2, *(curr_list1->page_metadata.pte));
+                    replace_page(curr_list2->page_metadata.vma, curr_page2,
+                                 curr_page1, *(curr_list2->page_metadata.pte));
 
                 if (code == -EFAULT)
                 {
-                    //pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
+                    pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
                 }
                 else
                 {
@@ -392,7 +392,7 @@ static void combine(struct metadata_collection* list1,
             }
         }
     }
-    pr_info("%d",count);
+    pr_info("%d", count);
 
     // todo:free these properly
     /*
@@ -412,8 +412,8 @@ static void combine(struct metadata_collection* list1,
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2)
 {
-    struct metadata_collection* list1;
-    struct metadata_collection* list2;
+    struct metadata_collection *list1, *list2;
+
     pr_info("FKSM: TRAVERSE1 START");
     list1 = traverse(pid1);
     pr_info("FKSM: TRAVERSE1 END, TRAVERSE2 START");
