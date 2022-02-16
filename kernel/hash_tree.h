@@ -4,6 +4,9 @@
 #include <crypto/internal/hash.h>
 #include <crypto/blake2b.h>
 #include <linux/xxhash.h>
+#define CONTAINER_SIZE 32
+#define FIRST_LEVEL_SIZE 256
+#define BLAKE_ARRAY_SIZE 64
 
 struct first_level_bucket {
     struct second_level_container* ptr;
@@ -25,8 +28,8 @@ struct second_level_bucket {
 
 struct hash_tree_node {
     struct rb_node node;
-    u8* value;
     struct page_metadata* metadata;
+    u8 value[BLAKE_ARRAY_SIZE];
 };
 
 struct first_level_bucket* first_level_init(void);

@@ -2,7 +2,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/vmalloc.h>
-#define CONTAINER_SIZE 32
+
 
 
 /**
@@ -11,7 +11,7 @@
  * @return struct first_level_bucket* Pointer to the beginning of the array
  */
 struct first_level_bucket* first_level_init(void) {
-    struct first_level_bucket* new_hash_tree = vzalloc(256 * sizeof(struct first_level_bucket)); //Allocate 256 element tree
+    struct first_level_bucket* new_hash_tree = vzalloc(FIRST_LEVEL_SIZE * sizeof(struct first_level_bucket)); //Allocate 256 element tree
     return new_hash_tree;
 }
 
@@ -26,8 +26,7 @@ struct second_level_container* second_level_init(struct second_level_container* 
     new_container = vmalloc(sizeof (struct second_level_container)); //Allocate second level container
     new_container->buckets = vzalloc(CONTAINER_SIZE * sizeof(struct second_level_bucket)); //Each container gets a 32-array of buckets
     new_container->counter = 0;
-    i = 0;
-    for (; i < CONTAINER_SIZE; i++) { //Initialize each bucket
+    for (i = 0; i < CONTAINER_SIZE; i++) { //Initialize each bucket
     	new_container->buckets[i].in_use = false;
         new_container->buckets[i].tree = RB_ROOT; //Initialize the red-black tree in each bucket
     }
@@ -92,10 +91,8 @@ static struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b) {
 	
 	pr_info("searching rbtree");
 	while(node) { //Loop through all the nodes
-		pr_info("beginning loop");
 		data = container_of(node, struct hash_tree_node, node); //Get the data of the current node
 		result = memcmp(blake2b, data->value, BLAKE2B_512_HASH_SIZE); //Compare the desired blake2b with the value in the data
-		
 		if (result < 0) {
 			pr_info("going left");
 			node = node->rb_left; //If our blake2b is less than the value in the current node, go left
@@ -153,34 +150,35 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
     }
     
     add_success = false;
-    while (add_success == false) { // We're going to keep going through each container in sequence and see if the xxHash value is present
-    	int i = 0;
+    while (!add_success) { // We're going to keep going through each container in sequence and see if the xxHash value is present
+    	int i;
         for (i = 0; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets of the current container
-        	if (curr_container->buckets[i].in_use == false) { //If the current bucket isn't in use, put our hash there
+        	if (!curr_container->buckets[i].in_use) { //If the current bucket isn't in use, put our hash there
                 curr_container->buckets[i].xxhash = xxhash;
                 curr_container->buckets[i].in_use = true;
                 curr_container->counter += 1; //Since we're adding a new value, increment the counter in the container
                 new_node = vmalloc(sizeof(struct hash_tree_node)); //Create a new hash tree node to put into the rbtree
-                new_node->value = blake2b;
+                memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
+//                new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
                     pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
                     return -1;
                 }
                 else add_success = true;
-                break;
             }
             else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
                 struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
-                new_node->value = blake2b;
+                memcpy(&new_node->value, &blake2b, sizeof(blake2b));
+                //new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
                     pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
                     return -1;
                 }
                 else add_success = true;
-                break;
             }
+            break;
             
         }
         if (!add_success) { //if we go through all 32 buckets and still don't successfully add the new item, go to the next container
@@ -225,8 +223,8 @@ struct page_metadata* hash_tree_lookup(struct first_level_bucket* tree, u64 xxha
     	curr_container = tree[first_byte].ptr; //Get the container pointed to by the bucket in the first level hash
     	find_success = false;
     	while(find_success == false) { //Keep looping until we hit a termination condition
-    		int i = 0;
-    		for (; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets on the current container
+    		int i;
+    		for (i = 0; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets on the current container
     			if (xxhash == curr_container->buckets[i].xxhash && curr_container->buckets[i].in_use == true) { //If we do find the xxhash, search the rbtree for the blake2b
     				struct hash_tree_node* result_node = rb_search(&curr_container->buckets[i].tree, blake2b);
     				if (result_node != NULL) {
@@ -264,7 +262,7 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 	else {
 		struct second_level_container* curr_container = tree[first_byte].ptr; //Get the container pointed to by the bucket in the first level hash
     	bool find_success = false;
-    	while(find_success == false) { //Keep looping until we hit a termination condition
+    	while(!find_success) { //Keep looping until we hit a termination condition
     		int i = 0;
     		for (; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets on the current container
     			if (xxhash == curr_container->buckets[i].xxhash && curr_container->buckets[i].in_use == true) { //If we find the hash we want and the bucket is in use, we're in the right spot
@@ -308,19 +306,19 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 
 int sus_mod_htree(int flags) {
 	u64 test_xxhash;
-	u8* test_blake;
+	u8 test_blake[BLAKE_ARRAY_SIZE];
 	struct page_metadata* test_meta;
 	
 	u64 test_xxhash_2;
-	u8* test_blake_2;
+	u8 test_blake_2[BLAKE_ARRAY_SIZE];
 	struct page_metadata* test_meta_2;
 	
 	u64 test_xxhash_3;
-	u8* test_blake_3;
+	u8 test_blake_3[BLAKE_ARRAY_SIZE];
 	struct page_metadata* test_meta_3;
 	
 	u64 test_xxhash_4;
-	u8* test_blake_4;
+	u8 test_blake_4[BLAKE_ARRAY_SIZE];
 	struct page_metadata* test_meta_4;
 	
 	struct first_level_bucket* test_tree;
@@ -341,7 +339,7 @@ int sus_mod_htree(int flags) {
 	test_meta = vmalloc(sizeof(struct page_metadata));
 	
 	test_xxhash = 13451345;
-	test_blake = vmalloc(sizeof(u8) * 64);
+//	test_blake = vmalloc(sizeof(u8) * 64);
 	test_blake[0] = 25;
 	test_blake[1] = 55;
 	
@@ -349,7 +347,7 @@ int sus_mod_htree(int flags) {
 	test_meta_2 = vmalloc(sizeof(struct page_metadata));
 	
 	test_xxhash_2 = 13451345;
-	test_blake_2 = vmalloc(sizeof(u8) * 64);
+//	test_blake_2 = vmalloc(sizeof(u8) * 64);
 	test_blake_2[0] = 25;
 	test_blake_2[1] = 85;
 	
@@ -357,7 +355,7 @@ int sus_mod_htree(int flags) {
 	test_meta_3 = vmalloc(sizeof(struct page_metadata));
 	
 	test_xxhash_3 = 13451345;
-	test_blake_3 = vmalloc(sizeof(u8) * 64);
+//	test_blake_3 = vmalloc(sizeof(u8) * 64);
 	test_blake_3[0] = 78;
 	test_blake_3[1] = 10;
 	
@@ -365,7 +363,7 @@ int sus_mod_htree(int flags) {
 	test_meta_4 = vmalloc(sizeof(struct page_metadata));
 	
 	test_xxhash_4 = 13451345;
-	test_blake_4 = vmalloc(sizeof(u8) * 64);
+//	test_blake_4 = vmalloc(sizeof(u8) * 64);
 	test_blake_4[0] = 88;
 	test_blake_4[1] = 23;	
 	
@@ -384,10 +382,6 @@ int sus_mod_htree(int flags) {
 		vfree(test_meta_2);
 		vfree(test_meta_3);
 		vfree(test_meta_4);
-		vfree(test_blake);
-		vfree(test_blake_2);
-		vfree(test_blake_3);
-		vfree(test_blake_4);
 		vfree(test_tree);
 		return -1;
 	}
@@ -402,10 +396,6 @@ int sus_mod_htree(int flags) {
 		vfree(test_meta_2);
 		vfree(test_meta_3);
 		vfree(test_meta_4);
-		vfree(test_blake);
-		vfree(test_blake_2);
-		vfree(test_blake_3);
-		vfree(test_blake_4);
 		vfree(test_tree);
 		return -1;
 	}
@@ -419,10 +409,6 @@ int sus_mod_htree(int flags) {
 		vfree(test_meta_2);
 		vfree(test_meta_3);
 		vfree(test_meta_4);
-		vfree(test_blake);
-		vfree(test_blake_2);
-		vfree(test_blake_3);
-		vfree(test_blake_4);
 		vfree(test_tree);
 		return -1;
 	}
@@ -436,10 +422,6 @@ int sus_mod_htree(int flags) {
 		vfree(test_meta_2);
 		vfree(test_meta_3);
 		vfree(test_meta_4);
-		vfree(test_blake);
-		vfree(test_blake_2);
-		vfree(test_blake_3);
-		vfree(test_blake_4);
 		vfree(test_tree);
 		return -1;
 	}
@@ -448,10 +430,6 @@ int sus_mod_htree(int flags) {
 	vfree(test_meta_2);
 	vfree(test_meta_3);
 	vfree(test_meta_4);
-	vfree(test_blake);
-	vfree(test_blake_2);
-	vfree(test_blake_3);
-	vfree(test_blake_4);
 	vfree(test_tree);
 
 	return 0;
