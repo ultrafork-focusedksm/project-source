@@ -85,8 +85,13 @@ int main(void)
 {
     // TODO: call ioctl and print hashes
     // TODO: reset this after testing is done
-    sus_hash_tree_test(sus_open(), 1);
+    int test = sus_hash_tree_test(sus_open(), 1);
+    if (test == 0) {
+	    printf("ioctl ran through\n");
+    }
     
+    
+    /*
     int pids_fd =
         shm_open(FKSM_PIDS, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
     if (pids_fd == -1)
@@ -141,14 +146,14 @@ int main(void)
     }
 
     if (cpid == 0)
-    { /* Code executed by child */
-        printf("%d | %d \n", getppid(), getpid());
+    { *//* Code executed by child */
+        /*printf("%d | %d \n", getppid(), getpid());
         child(0);
         return 0;
     }
     else
-    { /* Code executed by parent */
-        sleep(1);
+    { *//* Code executed by parent */
+        /*sleep(1);
         uint8_t blake2b_out[BLAKE2B_OUTBYTES];
         for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
         {
@@ -195,7 +200,7 @@ release:
     }
     free(addrs);
     shm_unlink(FKSM_ADDR);
-    shm_unlink(FKSM_PIDS);
+    shm_unlink(FKSM_PIDS);*/
 
     return 0;
 }
