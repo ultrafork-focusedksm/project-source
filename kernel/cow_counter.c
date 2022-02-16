@@ -43,6 +43,8 @@ int cow_count(pid_t proc, size_t* cow_bytes, size_t* vm_bytes)
     {
         down_read(&mm->mmap_lock);
 
+        *cow_bytes = 0;
+        *vm_bytes = 0;
         /*
          * This may look like a double loop over vm_area_structs. This is
          * correct. In order to determine if memory is COW shared with this
@@ -69,7 +71,8 @@ int cow_count(pid_t proc, size_t* cow_bytes, size_t* vm_bytes)
             *vm_bytes += vma->vm_end - vma->vm_start;
         }
         up_read(&mm->mmap_lock);
-        pr_debug("%d total COW memory bytes %ld\n", task->pid, *cow_bytes);
+        pr_info("%d total COW memory bytes %ld, VM bytes %ld\n", task->pid,
+                *cow_bytes, *vm_bytes);
     }
 
     return 0;
