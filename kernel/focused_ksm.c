@@ -345,8 +345,8 @@ static void combine(struct metadata_collection* list1,
     struct metadata_collection* curr_list2;
     struct page* curr_page1;
     struct page* curr_page2;
-    void* addr; // for atomic mapping
     int code;   // replace page output code
+    int count;
 
     struct task_struct* task;
 
@@ -356,6 +356,7 @@ static void combine(struct metadata_collection* list1,
         pr_err("FKSM_ERROR: task struct not found");
     }
 
+    count=0;
     list_for_each_entry(curr_list1, &list1->list, list)
     {
         if (curr_list1->first)
@@ -363,7 +364,7 @@ static void combine(struct metadata_collection* list1,
 
         list_for_each_entry(curr_list2, &list2->list, list)
         {
-            if (curr_list2->first)
+            if (curr_list2->merged || curr_list2->first)
                 continue;
 
             if ((curr_list1->page_metadata.page !=
@@ -373,39 +374,26 @@ static void combine(struct metadata_collection* list1,
             {
                 curr_page1 = curr_list1->page_metadata.page;
                 curr_page2 = curr_list2->page_metadata.page;
-                pr_info("FKSM_MERGE: REPLACING PAGES %p | %p", curr_page1,
-                        curr_page2);
-
-                addr = kmap_atomic(curr_page1);
-                pr_info("FKSM_MERGE: ATOMIC START FOR ADDR %p", addr);
-                if (IS_ERR(addr))
-                {
-                    pr_err(
-                        "FKSM_ERROR: In combine(), kmap_atomic returned error");
-                    return;
-                }
-
-                pr_info("FKSM_MERGE: CALL TO REPLACE_PAGE");
-                pr_info("ARGS: %p | %p | %p | %p",
-                        curr_list1->page_metadata.vma, curr_page1, curr_page2,
-                        curr_list1->page_metadata.pte);
 
                 code =
                     replace_page(curr_list1->page_metadata.vma, curr_page1,
                                  curr_page2, *(curr_list1->page_metadata.pte));
-                kunmap_atomic(addr);
 
                 if (code == -EFAULT)
                 {
-                    pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
+                    //pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
                 }
                 else
                 {
                     pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
+                    curr_list2->merged = true;
+                    count++;
                 }
             }
         }
     }
+    pr_info("%d",count);
+
     // todo:free these properly
     /*
         list_for_each_safe (cursor, q, list) (ignore q)

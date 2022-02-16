@@ -15,8 +15,8 @@
 
 #define FKSM_ADDR "/fksm-test-addrs"
 #define FKSM_PIDS "/fksm-test-pids"
-#define PAGES_PER_PID 5
-#define NUM_PIDS 2
+#define PAGES_PER_PID 100
+#define NUM_PIDS 10
 #define NUM_CHILDREN (NUM_PIDS - 1)
 #define ADDR_SEGMENT_SIZE                                                      \
     (8 * NUM_PIDS * PAGES_PER_PID) // 8 byte pointers for each segment
@@ -59,6 +59,8 @@ int main(void)
 {
     void** addrs;
     int* pids;
+    int i;
+
     int addr_segment_id;
     addr_segment_id = shmget(IPC_PRIVATE, ADDR_SEGMENT_SIZE,
                              IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
@@ -78,48 +80,52 @@ int main(void)
     // todo: check if shmget worked
 
     pid_t cpid;
-    cpid = fork();
-    if (cpid == -1)
+    for (i = 0; i < NUM_CHILDREN; i++)
     {
-        perror("fork");
-        exit(EXIT_FAILURE);
+        // fork off a child, check for errors, if in child process run function
+        // then return if in parent process, loop back to start until for ends
+        cpid = fork();
+        if (cpid == -1)
+        {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+
+        if (cpid == 0)
+        { /* Code executed by child */
+            // printf("%d | %d \n", getppid(), getpid());
+            child(i, addr_segment_id, pids_segment_id);
+            return 0;
+        }
     }
 
-    if (cpid == 0)
-    { /* Code executed by child */
-        printf("%d | %d \n", getppid(), getpid());
-        child(0, addr_segment_id, pids_segment_id);
-        return 0;
+    /* Code executed by parent */
+    addrs = shmat(addr_segment_id, 0, 0);
+    pids = shmat(pids_segment_id, 0, 0);
+    pids[0] = getpid();
+    for (int i = 0; i < PAGES_PER_PID; i++)
+    {
+        addrs[i] = aligned_alloc(getpagesize(), getpagesize());
+        memset(addrs[i], 0xaa, getpagesize());
     }
-    else
-    { /* Code executed by parent */
-        addrs = shmat(addr_segment_id, 0, 0);
-        pids = shmat(pids_segment_id, 0, 0);
-        pids[0] = getpid();
-        for (int i = 0; i < PAGES_PER_PID; i++)
+    sleep(3);
+    uint8_t blake2b_out[BLAKE2B_OUTBYTES];
+    for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
+    {
+        // print_bytes(addrs[i], getpagesize());
+        int res = blake2b(blake2b_out, addrs[i], NULL, BLAKE2B_OUTBYTES,
+                          getpagesize(), 0);
+        if (res == -1)
         {
-            addrs[i] = aligned_alloc(getpagesize(), getpagesize());
-            memset(addrs[i], 0xaa, getpagesize());
+            printf("blake2b hash error");
         }
-        sleep(3);
-        uint8_t blake2b_out[BLAKE2B_OUTBYTES];
-        for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
+        else
         {
-            // print_bytes(addrs[i], getpagesize());
-            int res = blake2b(blake2b_out, addrs[i], NULL, BLAKE2B_OUTBYTES,
-                              getpagesize(), 0);
-            if (res == -1)
-            {
-                printf("blake2b hash error");
-            }
-            else
-            {
-                printf("hash for #%d: %p \n", i, addrs[i]);
-                print_bytes(blake2b_out, BLAKE2B_OUTBYTES);
-            }
-            memset(blake2b_out, 0, BLAKE2B_OUTBYTES);
-            printf("\n");
+            printf("hash for #%d: %p \n", i, addrs[i]);
+            print_bytes(blake2b_out, BLAKE2B_OUTBYTES);
         }
+        memset(blake2b_out, 0, BLAKE2B_OUTBYTES);
+        printf("\n");
     }
 
     int fd = sus_open();
@@ -128,18 +134,22 @@ int main(void)
         printf("Error opening ioctl: %d\n", errno);
         goto release;
     }
-    int ret = sus_fksm_merge(fd, pids[0], pids[1]);
-    if (ret != 0)
+    for (i = 0; i < NUM_CHILDREN; i++)
     {
-        printf("Error writing to ioctl: %d\n", ret);
-        goto release;
+        int ret = sus_fksm_merge(fd, pids[0], pids[i+1]);
+        if (ret != 0)
+        {
+            printf("Error writing to ioctl: %d\n", ret);
+            goto release;
+        }
+        else
+        {
+            printf("Wrote to ioctl\n");
+        }
+        sleep(1); // arbitrary
+        printf("Slept\n");
     }
-    else
-    {
-        printf("Wrote to ioctl\n");
-    }
-    sleep(8); // arbitrary
-    printf("Slept\n");
+
     sus_close(fd);
     printf("Closed ioctl\n");
 

@@ -23,6 +23,7 @@ struct metadata_collection
     struct page_metadata page_metadata;
     u8 checksum[BLAKE2B_512_HASH_SIZE];
     bool first;
+    bool merged;
 };
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2);
