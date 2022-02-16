@@ -21,10 +21,12 @@ struct first_level_bucket* first_level_init(void) {
  * @return struct second_level_container* The new container
  */
 struct second_level_container* second_level_init(struct second_level_container* previous) {
-    struct second_level_container* new_container = vmalloc(sizeof (struct second_level_container)); //Allocate second level container
+	struct second_level_container* new_container;
+	int i;
+    new_container = vmalloc(sizeof (struct second_level_container)); //Allocate second level container
     new_container->buckets = vzalloc(CONTAINER_SIZE * sizeof(struct second_level_bucket)); //Each container gets a 32-array of buckets
     new_container->counter = 0;
-    int i = 0;
+    i = 0;
     for (; i < CONTAINER_SIZE; i++) { //Initialize each bucket
     	new_container->buckets[i].in_use = false;
         new_container->buckets[i].tree = RB_ROOT; //Initialize the red-black tree in each bucket
@@ -43,13 +45,16 @@ struct second_level_container* second_level_init(struct second_level_container* 
 static int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add) {
     //Credit for most of this code is the example for rbtree on kernel.org
 
+	struct hash_tree_node* curr_node;
+	int result;
     struct rb_node **new_node = &(root->rb_node); //Get the address of the node pointer stored in our root
     struct rb_node *parent = NULL;
 
+	pr_info("looking through the rbtree");
     //Now here's the meat of the operation: figuring out where the new node goes
     while (*new_node) {
-        struct hash_tree_node* curr_node = container_of(*new_node, struct hash_tree_node, node);
-        int result = memcmp(node_to_add->value, curr_node->value, BLAKE2B_512_HASH_SIZE);
+        curr_node = container_of(*new_node, struct hash_tree_node, node);
+        result = memcmp(node_to_add->value, curr_node->value, BLAKE2B_512_HASH_SIZE);
 
         parent = *new_node; //move down 1 node, so the current node ends up being the parent
         if (result < 0) { //If the hash we're adding is less than the current value, move to the left
@@ -78,18 +83,35 @@ static int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add) {
  * @param blake2b The blake2b value to look for
  */
 static struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b) {
-
-	struct rb_node* node = root->rb_node; //Start at the first node
+	struct rb_node* node;
+	struct hash_tree_node* data;
+	int result;
 	
+	node = root->rb_node; //Start at the first node
+	pr_info("node: %p", node);
+	
+	pr_info("searching rbtree");
 	while(node) { //Loop through all the nodes
-		struct hash_tree_node* data = container_of(node, struct hash_tree_node, node); //Get the data of the current node
-		int result = memcmp(blake2b, data->value, BLAKE2B_512_HASH_SIZE); //Compare the desired blake2b with the value in the data
+		pr_info("beginning loop");
+		data = container_of(node, struct hash_tree_node, node); //Get the data of the current node
+		result = memcmp(blake2b, data->value, BLAKE2B_512_HASH_SIZE); //Compare the desired blake2b with the value in the data
 		
-		if (result < 0) node = node->rb_left; //If our blake2b is less than the value in the current node, go left
-		else if (result > 0) node = node->rb_right; //Else go right
-		else return data; //If they're equal, return the current node
+		if (result < 0) {
+			pr_info("going left");
+			node = node->rb_left; //If our blake2b is less than the value in the current node, go left
+		} 
+		else if (result > 0) {
+			pr_info("going right");
+			node = node->rb_right; //Else go right	
+		}
+		else {
+			pr_info("found blake2b");
+			return data; //If they're equal, return the current node		
+		}
+		
 	}
 	
+	pr_info("failed to find blake2b");
 	return NULL; //If we get through all the nodes without finding what we want, return NULL
 }
 
@@ -102,16 +124,26 @@ static struct hash_tree_node* rb_search(struct rb_root *root, u8* blake2b) {
  * @param blake2b The blake2b value of the page
  */
 int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, struct page_metadata* metadata) {
+	u8* xxhash_as_array;
+	u8 first_byte;
+	struct second_level_container* curr_container;
+	bool add_success;
+	struct hash_tree_node* new_node;
+	
+	pr_info("Starting add method");
     //====FIRST LEVEL HASH====//
-    u8 first_byte = ((u8*)xxhash)[0]; //Get the first byte of the xxhash
+    xxhash_as_array = (u8*)&xxhash;
+    first_byte = xxhash_as_array[0]; //Get the first byte of the xxhash
 
+	pr_info("checking if first byte is present");
     tree[first_byte].byte = first_byte; //Just put the first byte in the first level array 
     if (tree[first_byte].ptr == NULL) { //If the container in that slot isn't defined, define it
+    	pr_info("bucket is NULL, initializing second level tree");
         tree[first_byte].ptr = second_level_init(NULL);
     }
 
     //====SECOND LEVEL HASH====//
-    struct second_level_container* curr_container = tree[first_byte].ptr; //Get the first container from the current bucket on the tree
+    curr_container = tree[first_byte].ptr; //Get the first container from the current bucket on the tree
     
     while (curr_container->counter >= CONTAINER_SIZE) { //First, we need to skip over full containers
     	if (curr_container->next == NULL) {
@@ -120,14 +152,15 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
     	curr_container = curr_container->next;
     }
     
-    bool add_success = false;
+    add_success = false;
     while (add_success == false) { // We're going to keep going through each container in sequence and see if the xxHash value is present
     	int i = 0;
         for (i = 0; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets of the current container
         	if (curr_container->buckets[i].in_use == false) { //If the current bucket isn't in use, put our hash there
-                curr_container->buckets[i].xxhash = xxhash; 
+                curr_container->buckets[i].xxhash = xxhash;
+                curr_container->buckets[i].in_use = true;
                 curr_container->counter += 1; //Since we're adding a new value, increment the counter in the container
-                struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node)); //Create a new hash tree node to put into the rbtree
+                new_node = vmalloc(sizeof(struct hash_tree_node)); //Create a new hash tree node to put into the rbtree
                 new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
@@ -135,6 +168,7 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
                     return -1;
                 }
                 else add_success = true;
+                break;
             }
             else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
                 struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
@@ -145,6 +179,7 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
                     return -1;
                 }
                 else add_success = true;
+                break;
             }
             
         }
@@ -155,6 +190,7 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
             curr_container = curr_container->next; //Go to the next container
         }
     }
+    pr_info("Successfully added value to hash tree");
     return 0; //If we get here, that means we successfully added the new value
 }
 
@@ -169,10 +205,15 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
  * @return false 
  */
 struct page_metadata* hash_tree_lookup(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
+    struct second_level_container* curr_container;
+    bool find_success;
+    
     //====FIRST LEVEL HASH====//
-    u8 first_byte = ((u8*)xxhash)[0];
+    u8* xxhash_as_array = (u8*)&xxhash;
+    u8 first_byte = xxhash_as_array[0];
     
     if (tree[first_byte].ptr == NULL) { //Look at the bucket for the first byte in the first level hash -- if there's no pointer there return NULL
+		pr_info("byte not found in first level tree");
     	return NULL;
     }
     
@@ -180,26 +221,39 @@ struct page_metadata* hash_tree_lookup(struct first_level_bucket* tree, u64 xxha
     
     //====SECOND LEVEL HASH====///
     else {
-    	struct second_level_container* curr_container = tree[first_byte].ptr; //Get the container pointed to by the bucket in the first level hash
-    	bool find_success = false;
+	    pr_info("searching second level tree");
+    	curr_container = tree[first_byte].ptr; //Get the container pointed to by the bucket in the first level hash
+    	find_success = false;
     	while(find_success == false) { //Keep looping until we hit a termination condition
     		int i = 0;
     		for (; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets on the current container
     			if (xxhash == curr_container->buckets[i].xxhash && curr_container->buckets[i].in_use == true) { //If we do find the xxhash, search the rbtree for the blake2b
-    				struct page_metadata* result = rb_search(&curr_container->buckets[i].tree, blake2b)->metadata; //This will return NULL if the rb_search doesn't find what it's looking for
-    				return result;
+    				struct hash_tree_node* result_node = rb_search(&curr_container->buckets[i].tree, blake2b);
+    				if (result_node != NULL) {
+    					struct page_metadata* result = result_node->metadata; //This will return NULL if the rb_search doesn't find what it's looking for
+	    				if (result != NULL) {
+	    					return result;
+    					}
+					}
     			}
     		}
-    		if (curr_container->next == NULL) return NULL;
-    		else curr_container = curr_container->next; 
+    		if (curr_container->next == NULL) {
+    			pr_err("HASH_TREE_ERROR: hash not found");
+	    		return NULL;
+    		}
+    		else {
+	    		curr_container = curr_container->next; 
+    		}
     	}
     }
+    pr_err("HASH_TREE_ERROR: hash not found");
     return NULL;
 }
 
 int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 	//====FIRST LEVEL HASH====//
-	u8 first_byte = ((u8*)xxhash)[0];
+	u8* xxhash_as_array = (u8*)&xxhash;
+    u8 first_byte = xxhash_as_array[0];
 	
 	if (tree[first_byte].ptr == NULL) {
 		pr_err("HASH_TREE_ERROR: delete failed, could not find first byte of xxhash in first level hash");
@@ -217,9 +271,10 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
     				struct hash_tree_node* curr_node = rb_search(&curr_container->buckets[i].tree, blake2b);
     				if (curr_node) {
     					rb_erase(&curr_node->node, &curr_container->buckets[i].tree); //Remove node from tree
+    					pr_info("node removed from tree");
     					vfree(curr_node); //Free node
     					
-    					if (curr_container->buckets[i].tree.rb_node == NULL) { //if the root of the tree is now null, we can set its bucket to empty
+    					if (rb_first(&curr_container->buckets[i].tree) == NULL) { //if the root of the tree is now null, we can set its bucket to empty
 							curr_container->buckets[i].in_use = false;
 							curr_container->counter -= 1; //decrement the number of used buckets in the container
 							
@@ -229,6 +284,7 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 								vfree(curr_container); //free current container
 							}
     					}
+    					pr_info("hash tree successfully deleted requested value");
     					return 0;
     				}
     				else {
@@ -251,12 +307,152 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 
 
 int sus_mod_htree(int flags) {
-	printk("Entering ioctl");
-	//u64 test_xxhash = 346236456;
-	//u8* test_blake = vmalloc(sizeof(u64));
+	u64 test_xxhash;
+	u8* test_blake;
+	struct page_metadata* test_meta;
 	
-	//struct first_level_bucket* test_first_level = first_level_init();
-	//printk("Initialized first_level_bucket");
+	u64 test_xxhash_2;
+	u8* test_blake_2;
+	struct page_metadata* test_meta_2;
+	
+	u64 test_xxhash_3;
+	u8* test_blake_3;
+	struct page_metadata* test_meta_3;
+	
+	u64 test_xxhash_4;
+	u8* test_blake_4;
+	struct page_metadata* test_meta_4;
+	
+	struct first_level_bucket* test_tree;
+	
+	struct page_metadata* get_result;
+	
+	int delete_result;
+	
+	int add_result;
+	int add_result_2;
+	int add_result_3;
+	int add_result_4;
+	
+	struct page_metadata* check_delete;
+	
+	pr_notice("<<<<====HASH TREE IOCTL START====>>>>");
+	
+	test_meta = vmalloc(sizeof(struct page_metadata));
+	
+	test_xxhash = 13451345;
+	test_blake = vmalloc(sizeof(u8) * 64);
+	test_blake[0] = 25;
+	test_blake[1] = 55;
+	
+	
+	test_meta_2 = vmalloc(sizeof(struct page_metadata));
+	
+	test_xxhash_2 = 13451345;
+	test_blake_2 = vmalloc(sizeof(u8) * 64);
+	test_blake_2[0] = 25;
+	test_blake_2[1] = 85;
+	
+	
+	test_meta_3 = vmalloc(sizeof(struct page_metadata));
+	
+	test_xxhash_3 = 13451345;
+	test_blake_3 = vmalloc(sizeof(u8) * 64);
+	test_blake_3[0] = 78;
+	test_blake_3[1] = 10;
+	
+	
+	test_meta_4 = vmalloc(sizeof(struct page_metadata));
+	
+	test_xxhash_4 = 13451345;
+	test_blake_4 = vmalloc(sizeof(u8) * 64);
+	test_blake_4[0] = 88;
+	test_blake_4[1] = 23;	
+	
+	test_tree = first_level_init();
+	
+	
+	pr_notice("<<====Attempting to add to tree====>>");
+	
+	add_result = hash_tree_add(test_tree, test_xxhash, test_blake, test_meta);
+	add_result_2 = hash_tree_add(test_tree, test_xxhash_2, test_blake_2, test_meta_2);
+	add_result_3 = hash_tree_add(test_tree, test_xxhash_3, test_blake_3, test_meta_3);
+	add_result_4 = hash_tree_add(test_tree, test_xxhash_4, test_blake_4, test_meta_4);
+	if(add_result == -1 || add_result_2 == -1 || add_result_3 == -1 || add_result_4 == -1) {
+		pr_err("ioctl error: hash_tree_add failed");
+		vfree(test_meta);
+		vfree(test_meta_2);
+		vfree(test_meta_3);
+		vfree(test_meta_4);
+		vfree(test_blake);
+		vfree(test_blake_2);
+		vfree(test_blake_3);
+		vfree(test_blake_4);
+		vfree(test_tree);
+		return -1;
+	}
+	
+	
+	pr_notice("<<====Attempting to get the value we just added====>>");
+
+	get_result = hash_tree_lookup(test_tree, test_xxhash, test_blake);
+	if(memcmp(test_meta, get_result, sizeof(struct page_metadata)) != 0) {
+		pr_err("ioctl error: hash_tree_lookup failed");
+		vfree(test_meta);
+		vfree(test_meta_2);
+		vfree(test_meta_3);
+		vfree(test_meta_4);
+		vfree(test_blake);
+		vfree(test_blake_2);
+		vfree(test_blake_3);
+		vfree(test_blake_4);
+		vfree(test_tree);
+		return -1;
+	}
+	
+	pr_notice("<<====Attempting to delete the value we just added====>>");
+	
+	delete_result = hash_tree_delete(test_tree, test_xxhash, test_blake);
+	if(delete_result == -1) {
+		pr_err("ioctl error: delete failed");
+		vfree(test_meta);
+		vfree(test_meta_2);
+		vfree(test_meta_3);
+		vfree(test_meta_4);
+		vfree(test_blake);
+		vfree(test_blake_2);
+		vfree(test_blake_3);
+		vfree(test_blake_4);
+		vfree(test_tree);
+		return -1;
+	}
+	
+	pr_notice("<<====Checking to see if we've succesfully deleted====>>");
+	check_delete = hash_tree_lookup(test_tree, test_xxhash, test_blake);
+	if (check_delete != NULL) {
+		pr_info("check_delete: %p", check_delete);
+		pr_err("ioctl error: still found value after deleting");
+		vfree(test_meta);
+		vfree(test_meta_2);
+		vfree(test_meta_3);
+		vfree(test_meta_4);
+		vfree(test_blake);
+		vfree(test_blake_2);
+		vfree(test_blake_3);
+		vfree(test_blake_4);
+		vfree(test_tree);
+		return -1;
+	}
+	
+	vfree(test_meta);
+	vfree(test_meta_2);
+	vfree(test_meta_3);
+	vfree(test_meta_4);
+	vfree(test_blake);
+	vfree(test_blake_2);
+	vfree(test_blake_3);
+	vfree(test_blake_4);
+	vfree(test_tree);
 
 	return 0;
 }
