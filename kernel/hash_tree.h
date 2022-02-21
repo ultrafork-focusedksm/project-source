@@ -6,7 +6,6 @@
 #include <linux/xxhash.h>
 #define CONTAINER_SIZE 32
 #define FIRST_LEVEL_SIZE 256
-#define BLAKE_ARRAY_SIZE 64
 
 struct first_level_bucket {
     struct second_level_container* ptr;
@@ -29,11 +28,10 @@ struct second_level_bucket {
 struct hash_tree_node {
     struct rb_node node;
     struct page_metadata* metadata;
-    u8 value[BLAKE_ARRAY_SIZE];
+    u8 value[BLAKE2B_512_HASH_SIZE];
 };
 
 struct first_level_bucket* first_level_init(void);
-struct second_level_container* second_level_init(struct second_level_container* previous);
 
 int hash_tree_add(struct first_level_bucket* map, u64 xxhash, u8* blake2b, struct page_metadata* metadata);
 struct page_metadata* hash_tree_lookup(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
