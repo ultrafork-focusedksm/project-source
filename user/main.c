@@ -16,7 +16,7 @@
 #define FKSM_ADDR "/fksm-test-addrs"
 #define FKSM_PIDS "/fksm-test-pids"
 #define PAGES_PER_PID 100
-#define NUM_PIDS 10
+#define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
 #define ADDR_SEGMENT_SIZE                                                      \
     (8 * NUM_PIDS * PAGES_PER_PID) // 8 byte pointers for each segment

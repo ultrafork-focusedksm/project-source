@@ -21,7 +21,6 @@
 #include <linux/rmap.h>
 #include <linux/sched/mm.h>
 #include <linux/types.h>
-#include <stdbool.h>
 
 void kprint_bytes(u8* input, size_t size)
 {
