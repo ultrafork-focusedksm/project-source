@@ -182,6 +182,77 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
 }
 
 
+struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, struct page_metadata* metadata) {
+	u8* xxhash_as_array;
+	u8 first_byte;
+	struct second_level_container* curr_container;
+	bool add_success;
+	struct hash_tree_node* new_node;
+	
+    //====FIRST LEVEL HASH====//
+    xxhash_as_array = (u8*)&xxhash;
+    first_byte = xxhash_as_array[0]; //Get the first byte of the xxhash
+
+    tree[first_byte].byte = first_byte; //Just put the first byte in the first level array 
+    if (tree[first_byte].ptr == NULL) { //If the container in that slot isn't defined, define it
+        tree[first_byte].ptr = second_level_init(NULL);
+    }
+
+    //====SECOND LEVEL HASH====//
+    curr_container = tree[first_byte].ptr; //Get the first container from the current bucket on the tree
+    
+    while (curr_container->counter >= CONTAINER_SIZE) { //First, we need to skip over full containers
+    	if (curr_container->next == NULL) {
+    		curr_container->next = second_level_init(curr_container);
+    	}
+    	curr_container = curr_container->next;
+    }
+    
+    add_success = false;
+    while (!add_success) { // We're going to keep going through each container in sequence and see if the xxHash value is present
+    	int i;
+        for (i = 0; i < CONTAINER_SIZE; i++) { //Loop through all 32 buckets of the current container
+        	if (!curr_container->buckets[i].in_use) { //If the current bucket isn't in use, put our hash there
+                curr_container->buckets[i].xxhash = xxhash;
+                curr_container->buckets[i].in_use = true;
+                curr_container->counter += 1; //Since we're adding a new value, increment the counter in the container
+                new_node = vmalloc(sizeof(struct hash_tree_node)); //Create a new hash tree node to put into the rbtree
+                memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
+//                new_node->value = blake2b;
+                new_node->metadata = metadata;
+                if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
+                    pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
+                    return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
+                }
+                else add_success = true;
+            }
+            else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
+                struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
+                memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
+                //new_node->value = blake2b;
+                new_node->metadata = metadata;
+                if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
+                    pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
+                    return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
+                }
+                else add_success = true;
+            }
+            break;
+            
+        }
+        if (!add_success) { //if we go through all 32 buckets and still don't successfully add the new item, go to the next container
+            if (curr_container->next == NULL) { //If there isn't another cotainer connected to this one just yet, add a new one
+                curr_container->next = second_level_init(curr_container);
+            }
+            curr_container = curr_container->next; //Go to the next container
+        }
+    }
+    return NULL; //If we get here, that means we successfully added the new value
+}
+
+
+
+
 /**
  * @brief Tests to see if a hash is in the hash tree
  * 

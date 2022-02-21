@@ -35,6 +35,7 @@ struct first_level_bucket* first_level_init(void);
 
 int hash_tree_add(struct first_level_bucket* map, u64 xxhash, u8* blake2b, struct page_metadata* metadata);
 struct page_metadata* hash_tree_lookup(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
+struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* map, u64 xxhash, u8* blake2b, struct page_metadata* metadata);
 int hash_tree_delete(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
 
 int sus_mod_htree(int flags);
