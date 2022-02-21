@@ -22,6 +22,7 @@
 #include <linux/sched/mm.h>
 #include <linux/types.h>
 
+//Helper to print bytes during debugging of hashing functions
 void kprint_bytes(u8* input, size_t size)
 {
     size_t i;
@@ -30,9 +31,9 @@ void kprint_bytes(u8* input, size_t size)
     {
         for (j = 0; j < 32; j++)
         {
-            pr_cont(KERN_DEBUG "%02X", input[i + j]);
+            pr_cont(KERN_INFO "%02X", input[i + j]);
         }
-        pr_cont(KERN_DEBUG "\n");
+        pr_cont(KERN_INFO "\n");
     }
 }
 
@@ -47,7 +48,6 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
 {
     int err;
     u8* addr;
-    pr_debug("FKSM: HASH FUNCTION MAP ATOMIC");
 
     addr = kmap_atomic(page); // address to page
     if (IS_ERR(addr))
@@ -56,21 +56,9 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                "pointer");
         return -1;
     }
-    pr_debug("FKSM: HASHING");
-
-    // kmap atomic critical section, accessing page transparently? Need to
-    // verify ignore huge pages
-    pr_debug("START_PRINT_ADDR\n");
-    // if (addr[0]==0xAA){
-    //     kprint_bytes(addr, 4096);
-    // }
-    pr_debug("END_PRINT_ADDR\n");
 
     err = crypto_shash_digest(desc, addr, len, out);
-    pr_debug("FKSM: HASHED");
-
     kunmap_atomic(addr);
-    pr_debug("FKSM: HASH END UNMAP ATOMIC");
 
     if (err)
     {
@@ -78,8 +66,6 @@ static int fksm_hash(struct shash_desc* desc, struct page* page,
                "error");
         return err;
     }
-    pr_debug("PRINT_HASH\n");
-    // kprint_bytes(out, BLAKE2B_512_HASH_SIZE);
     return 0;
 }
 
@@ -104,16 +90,12 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         pr_err(
             "FKSM_ERROR: in callback, pte_page lookup returned error pointer");
     }
-    pr_debug("FKSM: page* %p", current_page);
-    pr_debug("FKSM: page flags %ld", current_page->flags);
-    pr_debug("FKSM: pre-page check");
 
     // TODO: find out if THP will be walked through or only pointed to the head
-    // TODO: compound pages walking through tails too?
+    // TODO: compound pages walking through tails too? Locking the group?
     if (PageAnon(current_page) || PageCompound(current_page) ||
         PageTransHuge(current_page))
     {
-        pr_debug("FKSM: POST-PAGE CHECK");
 
         tfm = crypto_alloc_shash("blake2b-512", 0, 0); // init transform object
         if (IS_ERR(tfm))
@@ -121,7 +103,6 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
             pr_err("FKSM_ERROR: in callback, crypto tfm object identified as "
                    "error pointer");
         }
-        pr_debug("FKSM: TFM OBJECT MADE");
 
         desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm),
                        GFP_KERNEL); // init descriptor object
@@ -130,20 +111,15 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
             pr_err("FKSM_ERROR: in callback, crypto desc object identified as "
                    "error pointer");
         }
-        pr_debug("FKSM: DESC OBJECT MADE");
 
         desc->tfm = tfm; // set descriptor transform object for our hashing call
-
-        pr_debug("FKSM: DESC TFM SET");
 
         new_meta = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
         if (IS_ERR(new_meta))
         {
             pr_err("FKSM_ERROR: in callback, new_meta not allocated");
         }
-        pr_debug("FKSM: PRE-LIST INIT");
         INIT_LIST_HEAD(&new_meta->list); // initialize list
-        pr_debug("FKSM: POST-LIST INIT");
 
         if (fksm_hash(desc, current_page, PAGE_SIZE, new_meta->checksum) != 0)
         {
@@ -159,15 +135,6 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         new_meta->page_metadata.mm = walk->mm;
         main_list = (struct metadata_collection*)walk->private;
         list_add(&new_meta->list, &main_list->list);
-
-        // struct metadata_collection* curr_list;
-        // list_for_each_entry(curr_list, &main_list->list, list)
-        // {
-        //     if (curr_list->first)
-        //         continue;
-        //     pr_info("LIST ELEMENT CHK: %lu",
-        //             (unsigned long)curr_list->checksum);
-        // }
     }
     return 0;
 }
@@ -186,8 +153,6 @@ static struct metadata_collection* traverse(unsigned long pid)
     {
         pr_err("FKSM_ERROR: task struct not found");
     }
-
-    pr_debug("FKSM: ALLOC STRUCTURE");
 
     metadata_list = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
 
@@ -285,7 +250,7 @@ static struct metadata_collection* traverse2(unsigned long pid)
             // grab the page pointer for this virtual address in vma
             page = follow_page(
                 vma, address,
-                FOLL_GET); // TODO: FOLL_PIN since we want to access memory
+                FOLL_GET); // fix: FOLL_PIN since we want to access memory
             if (IS_ERR_OR_NULL(page))
             {
                 // page pointer is bogus, skip
@@ -316,7 +281,9 @@ static struct metadata_collection* traverse2(unsigned long pid)
                 //TODO: is there a macro for this?
 
                 new_meta->page_metadata.page = page; // set page_metadata
-                // new_meta->page_metadata.pte = ;
+
+                //THIS IS WHY I DID NOT CONTINUE HERE, how to get PTE
+                //new_meta->page_metadata.pte = ;
                 new_meta->page_metadata.mm = mm;
                 new_meta->page_metadata.vma = vma;
 
@@ -326,7 +293,7 @@ static struct metadata_collection* traverse2(unsigned long pid)
             address += PAGE_SIZE; // jump to next address
         }
     }
-    // clean up objects before return
+    // clean up objects before return (avoid memory leaks)
 traverse_exit:
     mmap_read_unlock(mm);
     kfree(tfm);
@@ -339,7 +306,8 @@ traverse_exit:
 static void combine(struct metadata_collection* list1,
                     struct metadata_collection* list2, unsigned long pid1)
 {
-    struct metadata_collection *curr_list1, *curr_list2;
+    struct metadata_collection *curr_list1, *curr_list2, *entry;
+    struct list_head q;
     struct page *curr_page1, *curr_page2;
     int code; // replace page output code
     int count;
@@ -393,20 +361,21 @@ static void combine(struct metadata_collection* list1,
     }
     pr_info("%d", count);
 
-    // todo:free these properly
-    /*
-        list_for_each_safe (cursor, q, list) (ignore q)
-        get list_entry
-        list_del cursor object
-        kfree list_entry object
+    // todo: there is a memory leak with the lists, free them properly
+    // i could not get this code working before the hash tree was ready
+    // switching to developing hash tree functionality
 
-        then list_del and kfree list head
-     */
-    // todo:
-    // list_del on cursor1 in the list
-    // kfree the list_entry
+    /*
+    list_for_each_safe(&(entry->list), q, &(list1->list))
+    {
+        list_del(&(entry->list));
+        kfree(&(entry->page_metadata));
+        kfree(entry);
+    }
+    list_del(&(list1->list));
     kfree(list1);
-    kfree(list2);
+    */
+
 }
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2)
