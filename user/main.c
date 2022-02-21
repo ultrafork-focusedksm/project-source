@@ -28,6 +28,13 @@
 #define PROCESS_SLEEP_TIME 60 * 5
 #define BYTES_TO_KILO(x) (x / 1024)
 
+#define COW_STR                                                                \
+    "            ^__^\n"                                                       \
+    "            (oo)\\_______\n"                                              \
+    "            (__)\\       )\\/\\\n"                                        \
+    "                ||----w |\n"                                              \
+    "                ||     ||"
+
 enum sus_tester_mode
 {
     NONE,
@@ -68,13 +75,32 @@ static void* thread_function(void* arg)
 {
     (void)arg;
     printf("started %d %d\n", gettid(), getpid());
-    sleep(PROCESS_SLEEP_TIME + 2);
+    for (int i = 0; i < PROCESS_SLEEP_TIME + 2; i++)
+    {
+        sleep(1);
+    }
     printf("done %d\n", gettid());
     return NULL;
 }
 
+static void cow_count_current_process(int fd)
+{
+    size_t cow;
+    size_t vm;
+    int ret = sus_cow_counter(fd, getpid(), &cow, &vm);
+    if (ret != 0)
+    {
+        fprintf(stderr, "could not collect parent's sharing info\n");
+        return;
+    }
+
+    printf("Process %d has %ld kB VM, %ld kB COW\n", getpid(),
+           BYTES_TO_KILO(vm), BYTES_TO_KILO(cow));
+}
+
 static void ufrk_fork_test(int fd, bool threading)
 {
+    cow_count_current_process(fd);
 
     pid_t pid = fork();
 
@@ -90,31 +116,41 @@ static void ufrk_fork_test(int fd, bool threading)
             pthread_create(&threads[0], NULL, thread_function, NULL);
             sleep(1);
         }
+
+        // offset the call to ultrafork so the cow counter has time to run
+        // in the child.
+        printf("Ultrafork\n");
         sus_ufrk_fork(fd, getpid(), 0);
         // fail_fast();
         printf("Survived ufrk: %d\n", getpid());
-
-        sleep(PROCESS_SLEEP_TIME);
     }
     else if (pid == 0)
     {
+        cow_count_current_process(fd);
         // child process
-        printf("Child PID: %d, TID: %d\n", getpid(), gettid());
+        /* printf("Child PID: %d, TID: %d\n", getpid(), gettid()); */
         if (threading)
         {
             pthread_create(&threads[1], NULL, thread_function, NULL);
         }
-        sleep(PROCESS_SLEEP_TIME);
-        printf("Child PID: %d, TID: %d\n", getpid(), gettid());
     }
     else
     {
         printf("Unable to fork test process\n");
     }
+
+    int remaining = 0;
+    do
+    {
+        remaining = sleep(PROCESS_SLEEP_TIME);
+        remaining = sleep(PROCESS_SLEEP_TIME);
+        printf("Pid %d, remaining %d\n", getpid(), remaining);
+    } while (remaining != 0);
+
     printf("Process %d returning\n", getpid());
 }
 
-static void cow_count(int fd, pid_t cow_pid)
+static void cow_count(int fd, pid_t cow_pid, bool quiet)
 {
     size_t cow;
     size_t vm;
@@ -122,6 +158,10 @@ static void cow_count(int fd, pid_t cow_pid)
 
     if (ret == 0)
     {
+        if (!quiet)
+        {
+            printf("%s\n", COW_STR);
+        }
         printf("Cow Counter: Pid %d has %ld kB COW memory, %ld kB Virtual "
                "Memory\n",
                cow_pid, BYTES_TO_KILO(cow), BYTES_TO_KILO(vm));
@@ -289,8 +329,9 @@ int main(int argc, char* argv[])
     int fd = sus_open();
     enum sus_tester_mode mode = NONE;
     bool threading = false;
+    bool quiet = false;
 
-    while ((c = getopt(argc, argv, "uhfatc:")) != -1)
+    while ((c = getopt(argc, argv, "quhfatc:")) != -1)
     {
         switch (c)
         {
@@ -310,6 +351,9 @@ int main(int argc, char* argv[])
         case 'a':
             mode = HTREE;
             break;
+        case 'q':
+            quiet = true;
+            break;
         case 'h':
         default:
             print_help(argv[0]);
@@ -320,7 +364,7 @@ int main(int argc, char* argv[])
     switch (mode)
     {
     case COW:
-        cow_count(fd, cow_pid);
+        cow_count(fd, cow_pid, quiet);
         break;
     case UFRK:
         ufrk_fork_test(fd, threading);

@@ -294,40 +294,43 @@ static int rebuild_siblings(struct pid_translation_table* tt)
         cloned_task = find_task_from_pid(cloned_task_pid);
         pr_info("iterating on pid %d\n", cloned_task->pid);
 
-        if (!is_thread(cloned_task))
+        if (is_thread(task)) {
+            break;
+        }
+
+        /* if (!is_thread(cloned_task)) */
+        /* { */
+        if (0 == cursor)
         {
-            if (0 == cursor)
+            pr_info("ufrk: rebuild_siblings: topmost adding %d as child of "
+                    "%d\n",
+                    cloned_task->pid, cloned_task->parent->pid);
+            INIT_LIST_HEAD(&cloned_task->sibling);
+            list_add(&cloned_task->sibling, &cloned_task->parent->children);
+        }
+
+        list_for_each_safe(pos, q, &task->children)
+        {
+            iter = list_entry(pos, struct task_struct, sibling);
+            BUG_ON(NULL == iter);
+
+            pr_info("ufrk: rechild: [%d] visiting pid %d\n", task->pid,
+                    iter->pid);
+
+            cloned_iter_pid = translate_pid(tt, iter->pid);
+            BUG_ON(0 == cloned_iter_pid);
+
+            cloned_iter_task = find_task_from_pid(cloned_iter_pid);
+            if (likely(NULL != cloned_iter_task))
             {
-                pr_info("ufrk: rebuild_siblings: topmost adding %d as child of "
-                        "%d\n",
-                        cloned_task->pid, cloned_task->parent->pid);
-                INIT_LIST_HEAD(&cloned_task->sibling);
-                list_add(&cloned_task->sibling, &cloned_task->parent->children);
-            }
-
-            list_for_each_safe(pos, q, &task->children)
-            {
-                iter = list_entry(pos, struct task_struct, sibling);
-                BUG_ON(NULL == iter);
-
-                pr_info("ufrk: rechild: [%d] visiting pid %d\n", task->pid,
-                        iter->pid);
-
-                cloned_iter_pid = translate_pid(tt, iter->pid);
-                BUG_ON(0 == cloned_iter_pid);
-
-                cloned_iter_task = find_task_from_pid(cloned_iter_pid);
-                if (likely(NULL != cloned_iter_task))
-                {
-                    pr_info("ufrk: resibling: [%d] adding pid %d to "
-                            "children\n",
-                            cloned_task->pid, cloned_iter_pid);
-                    INIT_LIST_HEAD(&cloned_iter_task->sibling);
-                    list_add(&cloned_iter_task->sibling,
-                             &cloned_task->children);
-                }
+                pr_info("ufrk: resibling: [%d] adding pid %d to "
+                        "children\n",
+                        cloned_task->pid, cloned_iter_pid);
+                INIT_LIST_HEAD(&cloned_iter_task->sibling);
+                list_add(&cloned_iter_task->sibling, &cloned_task->children);
             }
         }
+        /* } */
 
         list_for_each_safe(pos, q, &cloned_task->children)
         {
@@ -350,6 +353,16 @@ static int rebuild_siblings(struct pid_translation_table* tt)
             pr_info("ufrk: process %d has child %d\n", cloned_task->pid,
                     iter->pid);
         }
+
+        /* if (is_thread(task)) */
+        /* { */
+        /* struct task_struct* parent = cloned_task->parent; */
+
+        /* pr_info("ufrk: resibling: thread: adding %d to children of %d\n", */
+        /* cloned_task->pid, parent->pid); */
+        /* INIT_LIST_HEAD(&cloned_task->sibling); */
+        /* list_add(&cloned_task->sibling, &parent->children); */
+        /* } */
     }
     return 0;
 }
@@ -447,6 +460,13 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
             BUG_ON(NULL == forked_task->real_parent);
 
             forked_task->parent = forked_task->real_parent;
+
+            int ret =
+                sus_copy_creds(forked_task, args->flags, forked_task->parent);
+            if (0 != ret)
+            {
+                pr_err("rfork_thread: unable to copy creds: %d\n", ret);
+            }
 
             forked_task->tgid = try_translate_pid(ctx->tt, task->tgid);
 
