@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
 
 int sus_open()
 {
@@ -24,6 +25,22 @@ int sus_fksm_merge(int fd, pid_t pid1, pid_t pid2)
     }
     else
     {
+        return 0;
+    }
+}
+
+int sus_hash_tree_test(int fd, int flags)
+{
+    struct sus_ctx ctx;
+    ctx.mode = SUS_MODE_HTREE;
+    ctx.htree.flags = flags;
+    if (ioctl(fd, SUS_MOD_HASH_TREE, &ctx) == -1)
+    {
+    	printf("sus_hash_tree_test failed, ioctl returned -1\n");
+    	printf("errno: %d\n", errno);
+        return -errno;
+    }
+    else {
         return 0;
     }
 }

@@ -55,7 +55,7 @@ int child(int num, int addr_segment_id, int pids_segment_id)
     return 0;
 }
 
-int main(void)
+int fksm_parent(void)
 {
     void** addrs;
     int* pids;
@@ -136,7 +136,7 @@ int main(void)
     }
     for (i = 0; i < NUM_CHILDREN; i++)
     {
-        int ret = sus_fksm_merge(fd, pids[0], pids[i+1]);
+        int ret = sus_fksm_merge(fd, pids[0], pids[i + 1]);
         if (ret != 0)
         {
             printf("Error writing to ioctl: %d\n", ret);
@@ -164,4 +164,13 @@ release:
     shmctl(addr_segment_id, IPC_RMID, 0);
 
     return 0;
+}
+int hash_tree()
+{
+    int test = sus_hash_tree_test(sus_open(), 1);
+    if (test == 0)
+    {
+        printf("ioctl ran through\n");
+    }
+    return test;
 }
