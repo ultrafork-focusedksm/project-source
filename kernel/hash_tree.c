@@ -225,7 +225,9 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u
                 memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
-                    return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
+                    struct hash_tree_node* result_node = rb_search(&curr_container->buckets[i].tree, blake2b);
+                	if (result_node != NULL) return result_node->metadata;
+                	else return NULL;
                 }
                 else
                 {
@@ -238,7 +240,9 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u
                 memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
-                    return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
+                	struct hash_tree_node* result_node = rb_search(&curr_container->buckets[i].tree, blake2b);
+                	if (result_node != NULL) return result_node->metadata;
+                	else return NULL;
                 }
                 else
                 {
@@ -297,6 +301,7 @@ struct page_metadata* hash_tree_lookup(struct first_level_bucket* tree, u64 xxha
     				if (result_node != NULL) {
     					struct page_metadata* result = result_node->metadata; //This will return NULL if the rb_search doesn't find what it's looking for
 	    				if (result != NULL) {
+	    					find_success = true;
 	    					return result;
     					}
 					}
