@@ -1,4 +1,5 @@
 #include "focused_ksm.h"
+#include "hash_tree.h"
 #include "sus.h"
 #include <asm/types.h>
 #include <crypto/blake2b.h>
@@ -22,7 +23,7 @@
 #include <linux/sched/mm.h>
 #include <linux/types.h>
 
-//Helper to print bytes during debugging of hashing functions
+// Helper to print bytes during debugging of hashing functions
 void kprint_bytes(u8* input, size_t size)
 {
     size_t i;
@@ -43,32 +44,53 @@ static struct task_struct* find_task_from_pid(unsigned long pid)
     return get_pid_task(pid_struct, PIDTYPE_PID);
 }
 
-static int fksm_hash(struct shash_desc* desc, struct page* page,
-                     unsigned int len, u8* out)
+/**
+ * Helper function that performs long and short hash on a page of size PAGE_SIZE
+ * @page pointer to the page we want to hash
+ * @out_short output for the short hash
+ * @out_long output for the long hash
+ */
+static void fksm_hash_page(struct page* page, u64 out_short, u8* out_long)
 {
-    int err;
-    u8* addr;
+    int err;                  // hash output error code
+    u8* addr;                 // page mapping address
+    struct crypto_shash* tfm; // crypto transform object
+    struct shash_desc* desc;  // crypto description object
 
-    addr = kmap_atomic(page); // address to page
-    if (IS_ERR(addr))
-    {
-        pr_err("FKSM_ERROR: in fksm_hash() helper, kmap_atomic returned error "
-               "pointer");
-        return -1;
-    }
+    // init blake2b hash parameters
+    tfm = crypto_alloc_shash("blake2b-512", 0, 0);
+    BUG_ON(IS_ERR(tfm));
+    desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
+    BUG_ON(IS_ERR(desc));
+    desc->tfm = tfm;
 
-    err = crypto_shash_digest(desc, addr, len, out);
+    // ATOMIC START
+    addr = kmap_atomic(page);
+    BUG_ON(IS_ERR(addr));
+
+    // short hash operation
+    out_short = xxh64(addr, PAGE_SIZE, 0);
+
+    // long hash operation
+    err = crypto_shash_digest(desc, addr, PAGE_SIZE, out_long);
+
     kunmap_atomic(addr);
+    // ATOMIC END
 
-    if (err)
-    {
-        pr_err("FKSM_ERROR: in fksm_hash() helper, digest function returned "
-               "error");
-        return err;
-    }
-    return 0;
+    kfree(tfm);
+    kfree(desc);
+
+    // problems if the hash isn't valid since we don't memcmp
+    BUG_ON(err != 0);
 }
 
+/**
+ * Callback function on each pte in the mm of the current process
+ * @pte pte of the current page
+ * @addr not used
+ * @next not used
+ * @walk context for the callback
+ */
 static int callback_pte_range(pte_t* pte, unsigned long addr,
                               unsigned long next, struct mm_walk* walk)
 {
@@ -77,18 +99,18 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
      * return 0 from the callback to keep going. if something bad happens return
      * negative value. do not return a positive value
      */
+    struct page* current_page;            // current page in callback
+    struct page_metadata* current_meta;   // metadata for current page
+    struct page_metadata* existing_meta;  // metadata from hash_tree
+    struct first_level_bucket* hash_tree; // stack ref to hash tree
+    u64 out_short;                        // short hash output
+    u8* out_long;                         // long hash output
+    int code;                             // replace_page output code
 
-    struct metadata_collection* main_list;
-    struct page* current_page;
-    struct crypto_shash* tfm; // hash transform object
-    struct shash_desc* desc;
-    struct metadata_collection* new_meta;
-
-    current_page = pte_page(*pte); // page from page table entry
+    current_page = pte_page(*pte); // get the page from pte
     if (IS_ERR(current_page))
     {
-        pr_err(
-            "FKSM_ERROR: in callback, pte_page lookup returned error pointer");
+        pr_err("FKSM_ERROR: pte_page lookup error");
     }
 
     // TODO: find out if THP will be walked through or only pointed to the head
@@ -96,55 +118,50 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     if (PageAnon(current_page) || PageCompound(current_page) ||
         PageTransHuge(current_page))
     {
+        // compatible page type, hash it
+        fksm_hash_page(current_page, out_short, out_long);
 
-        tfm = crypto_alloc_shash("blake2b-512", 0, 0); // init transform object
-        if (IS_ERR(tfm))
+        current_meta = kmalloc(sizeof(struct page_metadata), GFP_KERNEL);
+
+        // collect metadata
+        current_meta->page = current_page;
+        current_meta->pte = pte;
+        current_meta->vma = walk->vma;
+        current_meta->mm = walk->mm;
+
+        // hold local ref to hash tree (only needed on compatible)
+        hash_tree = (struct first_level_bucket*)walk->private;
+
+        // add new_meta to hash_tree and check if return is not null (already
+        // existing metadata)
+        pr_info("%p | %llu | %p | %p", hash_tree, out_short, out_long,
+                current_meta);
+        existing_meta = hash_tree_get_or_create(hash_tree, out_short, out_long,
+                                                current_meta);
+        if (existing_meta != NULL)
         {
-            pr_err("FKSM_ERROR: in callback, crypto tfm object identified as "
-                   "error pointer");
+            // replace_page condition, we can merge this page into curr_meta
+            code = replace_page(current_meta->vma, current_meta->page,
+                                existing_meta->page, *current_meta->pte);
+            if (code == -EFAULT)
+            {
+                pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
+            }
+            else
+            {
+                pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
+            }
+            kfree(current_meta); // throw this out, it exists already
         }
-
-        desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm),
-                       GFP_KERNEL); // init descriptor object
-        if (IS_ERR(desc))
-        {
-            pr_err("FKSM_ERROR: in callback, crypto desc object identified as "
-                   "error pointer");
-        }
-
-        desc->tfm = tfm; // set descriptor transform object for our hashing call
-
-        new_meta = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
-        if (IS_ERR(new_meta))
-        {
-            pr_err("FKSM_ERROR: in callback, new_meta not allocated");
-        }
-        INIT_LIST_HEAD(&new_meta->list); // initialize list
-
-        if (fksm_hash(desc, current_page, PAGE_SIZE, new_meta->checksum) != 0)
-        {
-            pr_err(
-                "FKSM_ERROR: in callback, fksm_hash() helper returned error");
-        }
-        kfree(tfm);
-        kfree(desc);
-
-        new_meta->page_metadata.page = current_page; // set page_metadata
-        new_meta->page_metadata.pte = pte;
-        new_meta->page_metadata.vma = walk->vma;
-        new_meta->page_metadata.mm = walk->mm;
-        main_list = (struct metadata_collection*)walk->private;
-        list_add(&new_meta->list, &main_list->list);
     }
     return 0;
 }
 
 static struct mm_walk_ops task_walk_ops = {.pte_entry = callback_pte_range};
 
-static struct metadata_collection* traverse(unsigned long pid)
+static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
 {
     struct task_struct* task;
-    struct metadata_collection* metadata_list;
 
     task = find_task_from_pid(pid); // get task struct
     pr_info("FKSM: FIND TASK FOR %lu", pid);
@@ -154,240 +171,28 @@ static struct metadata_collection* traverse(unsigned long pid)
         pr_err("FKSM_ERROR: task struct not found");
     }
 
-    metadata_list = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
-
-    if (IS_ERR(metadata_list))
-    {
-        pr_err("FKSM_ERROR: metadata_list not allocated");
-    }
-    INIT_LIST_HEAD(&metadata_list->list); // initialize list
-    metadata_list->first = true;
-
-    pr_info("FKSM: READ LOCK FOR TRAVERSE");
+    pr_info("FKSM: READ LOCK FOR SCAN");
     mmap_read_lock(task->active_mm);
 
     pr_info("FKSM: WALK START");
-    walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops,
-                    metadata_list);
+    walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops, hash_tree);
 
     pr_info("FKSM: WALK END, UNLOCKING");
     mmap_read_unlock(task->active_mm);
 
-    return metadata_list;
-}
-
-/*
-static struct metadata_collection* traverse2(unsigned long pid)
-{
-    // crypto objects
-    struct crypto_shash* tfm; // crypto transform object
-    struct shash_desc* desc;  // crypto hash desc object
-
-    // pid memory objects
-    struct task_struct* task;   // task struct for pid
-    struct mm_struct* mm;       // mm of task
-    struct vm_area_struct* vma; // pointer to a vma in mm
-    unsigned long address;      // virtual address cursor within vma bounds
-    struct page* page;          // page struct for address
-
-    // fksm objects
-    struct metadata_collection* metadata_list; // main return object
-    struct metadata_collection* new_meta;      // new list element pointer
-
-    // page table lookup variables
-    pgd_t* pgd;
-    pmd_t* pmd;
-    pte_t *ptep;
-
-    metadata_list = kmalloc(sizeof(struct metadata_collection), GFP_KERNEL);
-
-    INIT_LIST_HEAD(&metadata_list->list); // initialize list
-    metadata_list->first = true;
-
-    tfm = crypto_alloc_shash("blake2b-512", 0, 0); // init transform object
-    if (IS_ERR(tfm))
-    {
-        pr_err("FKSM_ERROR: in callback, crypto tfm object identified as "
-               "error pointer");
-        goto traverse_exit;
-    }
-
-    desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(tfm),
-                   GFP_KERNEL); // init descriptor object
-    if (IS_ERR(desc))
-    {
-        pr_err("FKSM_ERROR: in callback, crypto desc object identified as "
-               "error pointer");
-        goto traverse_exit;
-    }
-
-    desc->tfm = tfm; // set descriptor transform object for our hashing call
-
-    task = find_task_from_pid(pid); // get task struct
-    if (IS_ERR(task))
-    {
-        pr_err("FKSM_ERROR: task struct not found");
-        goto traverse_exit;
-    }
-
-    mm = get_task_mm(task);
-    if (IS_ERR(mm))
-    {
-        pr_err("FKSM_ERROR: mm struct not found for task");
-    }
-
-    address = 0;
-    mmap_read_lock(mm);
-    for (vma = mm->mmap; NULL != vma; vma = vma->vm_next)
-    {
-        // for each VMA in our task mm
-        if (address < vma->vm_start)
-            address = vma->vm_start; // move virtual address to start of vma
-        if (!vma->anon_vma)
-            address = vma->vm_end; // skip to end if anon_vma is null
-        while (address < vma->vm_end)
-        {
-            // grab the page pointer for this virtual address in vma
-            page = follow_page(
-                vma, address,
-                FOLL_GET); // fix: FOLL_PIN since we want to access memory
-            if (IS_ERR_OR_NULL(page))
-            {
-                // page pointer is bogus, skip
-                address += PAGE_SIZE;
-                continue;
-            }
-            if (PageAnon(page))
-            {
-                // we have an anonymous page
-                // todo: compatibility with other types
-
-                new_meta = kmalloc(sizeof(struct metadata_collection),
-                                   GFP_KERNEL); // new list item
-                if (IS_ERR(new_meta))
-                {
-                    pr_err("FKSM_ERROR: in callback, new_meta not
-                    allocated");
-                }
-                INIT_LIST_HEAD(&new_meta->list); // initialize list
-
-                if (fksm_hash(desc, page, PAGE_SIZE, new_meta->checksum) !=
-                0)
-                {
-                    pr_err("FKSM_ERROR: in callback, fksm_hash() helper "
-                           "returned error");
-                }
-
-                //TODO: is there a macro for this?
-
-                new_meta->page_metadata.page = page; // set page_metadata
-
-                //THIS IS WHY I DID NOT CONTINUE HERE, how to get PTE
-                //new_meta->page_metadata.pte = ;
-                new_meta->page_metadata.mm = mm;
-                new_meta->page_metadata.vma = vma;
-
-                list_add(&new_meta->list, &metadata_list->list);
-            }
-            // put_page(*page);      // todo: what is this for?
-            address += PAGE_SIZE; // jump to next address
-        }
-    }
-    // clean up objects before return (avoid memory leaks)
-traverse_exit:
-    mmap_read_unlock(mm);
-    kfree(tfm);
-    kfree(desc);
-
-    return metadata_list;
-}
-*/
-
-static void combine(struct metadata_collection* list1,
-                    struct metadata_collection* list2, unsigned long pid1)
-{
-    struct metadata_collection *curr_list1, *curr_list2, *entry;
-    struct list_head q;
-    struct page *curr_page1, *curr_page2;
-    int code; // replace page output code
-    int count;
-
-    struct task_struct* task;
-
-    task = find_task_from_pid(pid1); // get task struct
-    if (IS_ERR(task))
-    {
-        pr_err("FKSM_ERROR: task struct not found");
-    }
-
-    count = 0;
-    list_for_each_entry(curr_list1, &list1->list, list)
-    {
-        if (curr_list1->first)
-            continue;
-
-        list_for_each_entry(curr_list2, &list2->list, list)
-        {
-            if (curr_list2->merged || curr_list2->first)
-                continue;
-
-            if ((curr_list1->page_metadata.page !=
-                 curr_list2->page_metadata.page) &&
-                memcmp(curr_list1->checksum, curr_list2->checksum,
-                       BLAKE2B_512_HASH_SIZE) == 0)
-            {
-                curr_page1 = curr_list1->page_metadata.page;
-                curr_page2 = curr_list2->page_metadata.page;
-
-                // todo: test this with swapped order in signature
-                // todo: make sure we've got the right pte in this signature
-                // todo: describe how signature works in the report?
-                code =
-                    replace_page(curr_list2->page_metadata.vma, curr_page2,
-                                 curr_page1, *(curr_list2->page_metadata.pte));
-
-                if (code == -EFAULT)
-                {
-                    pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
-                }
-                else
-                {
-                    pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
-                    curr_list2->merged = true;
-                    count++;
-                }
-            }
-        }
-    }
-    pr_info("%d", count);
-
-    // todo: there is a memory leak with the lists, free them properly
-    // i could not get this code working before the hash tree was ready
-    // switching to developing hash tree functionality
-
-    /*
-    list_for_each_safe(&(entry->list), q, &(list1->list))
-    {
-        list_del(&(entry->list));
-        kfree(&(entry->page_metadata));
-        kfree(entry);
-    }
-    list_del(&(list1->list));
-    kfree(list1);
-    */
-
+    return 0; // returning int in case we want to add return flags
 }
 
 int sus_mod_merge(unsigned long pid1, unsigned long pid2)
 {
-    struct metadata_collection *list1, *list2;
+    struct first_level_bucket* hash_tree;
+    hash_tree = first_level_init();
 
-    pr_info("FKSM: TRAVERSE1 START");
-    list1 = traverse(pid1);
-    pr_info("FKSM: TRAVERSE1 END, TRAVERSE2 START");
-    list2 = traverse(pid2);
-    pr_info("FKSM: TRAVERSE2 END, TRAVERSE COMPLETE, MERGE START");
-    combine(list1, list2, pid1);
-    pr_info("FKSM: MERGE END");
+    pr_info("FKSM_MAIN: pid1 start");
+    scan(pid1, hash_tree);
+    pr_info("FKSM_MAIN: pid2 start");
+    scan(pid2, hash_tree);
+    pr_info("FKSM_MAIN: end");
+
     return 0;
 }
