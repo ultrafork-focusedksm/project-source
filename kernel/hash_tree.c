@@ -154,7 +154,11 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
                     pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
                     return -1;
                 }
-                else add_success = true;
+                else
+                {
+                    add_success = true;
+                    break;
+                }
             }
             else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
                 struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
@@ -165,10 +169,12 @@ int hash_tree_add(struct first_level_bucket* tree, u64 xxhash, u8* blake2b, stru
                     pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
                     return -1;
                 }
-                else add_success = true;
+                else
+                {
+                    add_success = true;
+                    break;
+                }
             }
-            break;
-            
         }
         if (!add_success) { //if we go through all 32 buckets and still don't successfully add the new item, go to the next container
             if (curr_container->next == NULL) { //If there isn't another cotainer connected to this one just yet, add a new one
@@ -221,7 +227,11 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
                     return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
                 }
-                else add_success = true;
+                else
+                {
+                    add_success = true;
+                    break;
+                }
             }
             else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
                 struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
@@ -230,9 +240,13 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
                     return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
                 }
-                else add_success = true;
+                else
+                {
+                    add_success = true;
+                    break;
+                }
             }
-            break;
+            
             
         }
         if (!add_success) { //if we go through all 32 buckets and still don't successfully add the new item, go to the next container
