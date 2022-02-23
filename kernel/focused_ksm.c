@@ -120,7 +120,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     {
         // compatible page type, hash it
         out_short = kmalloc(sizeof(u64), GFP_KERNEL);
-        out_long = kmalloc(sizeof(BLAKE2B_512_HASH_SIZE), GFP_KERNEL);
+        out_long = kmalloc(BLAKE2B_512_HASH_SIZE, GFP_KERNEL);
 
         fksm_hash_page(current_page, out_short, out_long);
 
@@ -154,9 +154,14 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
             {
                 pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
             }
-            kfree(current_meta); // throw this out, it exists already
+
+            // throw these out, they exist already
+            kfree(current_meta); 
+            kfree(out_short);
+            kfree(out_long);
         }
     }
+    
     return 0;
 }
 
