@@ -53,7 +53,6 @@ static int rb_insert(struct rb_root *root, struct hash_tree_node* node_to_add) {
     while (*new_node) {
         curr_node = container_of(*new_node, struct hash_tree_node, node);
         result = memcmp(node_to_add->value, curr_node->value, BLAKE2B_512_HASH_SIZE);
-        pr_info("result: %d", result);
 
         parent = *new_node; //move down 1 node, so the current node ends up being the parent
         if (result < 0) { //If the hash we're adding is less than the current value, move to the left
@@ -218,10 +217,8 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u
                 curr_container->counter += 1; //Since we're adding a new value, increment the counter in the container
                 new_node = vmalloc(sizeof(struct hash_tree_node)); //Create a new hash tree node to put into the rbtree
                 memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
-//                new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
-                    pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
                     return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
                 }
                 else add_success = true;
@@ -229,10 +226,8 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* tree, u
             else if (xxhash == curr_container->buckets[i].xxhash) { //If we did find our xxhash value, try to put the blake2b into the tree in that slot
                 struct hash_tree_node* new_node = vmalloc(sizeof(struct hash_tree_node));
                 memcpy(new_node->value, blake2b, BLAKE2B_512_HASH_SIZE);
-                //new_node->value = blake2b;
                 new_node->metadata = metadata;
                 if (rb_insert(&curr_container->buckets[i].tree, new_node) != 0) {
-                    pr_err("HASH_TREE_ERROR: failed to add node to red-black tree");
                     return rb_search(&curr_container->buckets[i].tree, blake2b)->metadata;
                 }
                 else add_success = true;

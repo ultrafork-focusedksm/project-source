@@ -115,8 +115,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
     // TODO: find out if THP will be walked through or only pointed to the head
     // TODO: compound pages walking through tails too? Locking the group?
-    if (PageAnon(current_page) || PageCompound(current_page) ||
-        PageTransHuge(current_page))
+    if (PageAnon(current_page))
     {
         // compatible page type, hash it
         out_short = kmalloc(sizeof(u64), GFP_KERNEL);
@@ -156,10 +155,10 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
             }
 
             // throw these out, they exist already
-            kfree(current_meta); 
-            kfree(out_short);
-            kfree(out_long);
+            kfree(current_meta);            
         }
+        kfree(out_short);
+        kfree(out_long);
     }
     
     return 0;
