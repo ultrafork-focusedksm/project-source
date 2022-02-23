@@ -50,7 +50,7 @@ static struct task_struct* find_task_from_pid(unsigned long pid)
  * @out_short output for the short hash
  * @out_long output for the long hash
  */
-static void fksm_hash_page(struct page* page, u64 out_short, u8* out_long)
+static void fksm_hash_page(struct page* page, u64 *out_short, u8* out_long)
 {
     int err;                  // hash output error code
     u8* addr;                 // page mapping address
@@ -69,7 +69,7 @@ static void fksm_hash_page(struct page* page, u64 out_short, u8* out_long)
     BUG_ON(IS_ERR(addr));
 
     // short hash operation
-    out_short = xxh64(addr, PAGE_SIZE, 0);
+    *out_short = xxh64(addr, PAGE_SIZE, 0);
 
     // long hash operation
     err = crypto_shash_digest(desc, addr, PAGE_SIZE, out_long);
@@ -103,7 +103,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     struct page_metadata* current_meta;   // metadata for current page
     struct page_metadata* existing_meta;  // metadata from hash_tree
     struct first_level_bucket* hash_tree; // stack ref to hash tree
-    u64 out_short;                        // short hash output
+    u64* out_short;                        // short hash output
     u8* out_long;                         // long hash output
     int code;                             // replace_page output code
 
@@ -119,6 +119,9 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         PageTransHuge(current_page))
     {
         // compatible page type, hash it
+        out_short = kmalloc(sizeof(u64), GFP_KERNEL);
+        out_long = kmalloc(sizeof(BLAKE2B_512_HASH_SIZE), GFP_KERNEL);
+
         fksm_hash_page(current_page, out_short, out_long);
 
         current_meta = kmalloc(sizeof(struct page_metadata), GFP_KERNEL);
@@ -134,9 +137,9 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
         // add new_meta to hash_tree and check if return is not null (already
         // existing metadata)
-        pr_info("%p | %llu | %p | %p", hash_tree, out_short, out_long,
+        pr_info("%p | %llu | %p | %p", hash_tree, *out_short, out_long,
                 current_meta);
-        existing_meta = hash_tree_get_or_create(hash_tree, out_short, out_long,
+        existing_meta = hash_tree_get_or_create(hash_tree, *out_short, out_long,
                                                 current_meta);
         if (existing_meta != NULL)
         {
