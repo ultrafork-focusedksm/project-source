@@ -136,12 +136,13 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
         // add new_meta to hash_tree and check if return is not null (already
         // existing metadata)
-        pr_info("%p | %llu | %p | %p", hash_tree, *out_short, out_long,
+        pr_info("%p | %llu | %p | current: %p", hash_tree, *out_short, out_long,
                 current_meta);
         existing_meta = hash_tree_get_or_create(hash_tree, *out_short, out_long,
                                                 current_meta);
         if (existing_meta != NULL)
         {
+            pr_info("FKSM_MERGE: existing_meta %p", existing_meta);
             // replace_page condition, we can merge this page into curr_meta
             code = replace_page(current_meta->vma, current_meta->page,
                                 existing_meta->page, *current_meta->pte);

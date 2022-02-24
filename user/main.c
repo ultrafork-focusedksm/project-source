@@ -175,6 +175,7 @@ int hash_tree()
     return test;
 }
 
-int main(){
+int main()
+{
     fksm_parent();
 }
