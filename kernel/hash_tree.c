@@ -374,21 +374,21 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b) {
 int hash_tree_destroy(struct first_level_bucket* map) {
 	int i;
 	for (i = 0; i < 256; i++) {
-		if (map[i]->ptr != NULL) {
+		if (map[i].ptr != NULL) {
 			int j;
 			struct second_level_container* curr_container;
 			struct second_level_container* prev_container;
-			curr_container = map[i]->ptr;
+			curr_container = map[i].ptr;
 			for (j = 0; j < CONTAINER_SIZE; j++) {
 				if (curr_container->buckets[i].in_use) {
 					struct rb_root* curr_tree;
 					struct rb_node* curr_node;
 					curr_tree = &curr_container->buckets[i].tree;
-					for(curr_node = rb_last(curr_tree); curr_node; curr_node=rb_prev(curr_tree)) {
+					for(curr_node = rb_last(curr_tree); curr_node; curr_node=rb_prev(curr_node)) {
 						vfree(container_of(curr_node, struct hash_tree_node, node)); //free the current node
 					}
 				}
-				vfree(curr_container->buckets[i]);
+				vfree(&curr_container->buckets[i]);
 			}
 			if (curr_container->next != NULL) {
 				prev_container = curr_container;
@@ -396,7 +396,7 @@ int hash_tree_destroy(struct first_level_bucket* map) {
 				vfree(prev_container);
 			}
 		}
-		vfree(map[i]);
+		vfree(&map[i]);
 	}
 }
 
