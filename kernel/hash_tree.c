@@ -510,7 +510,6 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b)
     return -1; // if we get here, we must have failed
 }
 
-<<<<<<< HEAD
 int hash_tree_destroy(struct first_level_bucket* map) {
 	int i;
 	for (i = 0; i < 256; i++) {
@@ -540,13 +539,11 @@ int hash_tree_destroy(struct first_level_bucket* map) {
 	}
 }
 
-=======
 int sus_mod_htree(int flags)
 {
     u64 test_xxhash;
     u8 test_blake[BLAKE2B_512_HASH_SIZE] = {0};
     struct page_metadata* test_meta;
->>>>>>> 8349af81e82a787a41dd67f9301edd9b3b412951
 
     u64 test_xxhash_2;
     u8 test_blake_2[BLAKE2B_512_HASH_SIZE] = {0};
