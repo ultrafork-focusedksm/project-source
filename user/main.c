@@ -15,7 +15,7 @@
 
 #define FKSM_ADDR "/fksm-test-addrs"
 #define FKSM_PIDS "/fksm-test-pids"
-#define PAGES_PER_PID 100
+#define PAGES_PER_PID 15
 #define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
 #define ADDR_SEGMENT_SIZE                                                      \
@@ -175,6 +175,7 @@ int hash_tree()
     return test;
 }
 
-int main(){
+int main()
+{
     fksm_parent();
 }

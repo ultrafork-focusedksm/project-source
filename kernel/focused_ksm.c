@@ -38,6 +38,12 @@ void kprint_bytes(u8* input, size_t size)
     }
 }
 
+void print_meta(int d, struct page_metadata* meta)
+{
+    pr_info("FKSM_META_%d: %p | %p | %p | %p", d, meta->page, meta->pte,
+            meta->vma, meta->mm);
+}
+
 static struct task_struct* find_task_from_pid(unsigned long pid)
 {
     struct pid* pid_struct = find_get_pid(pid);
@@ -50,7 +56,7 @@ static struct task_struct* find_task_from_pid(unsigned long pid)
  * @out_short output for the short hash
  * @out_long output for the long hash
  */
-static void fksm_hash_page(struct page* page, u64 *out_short, u8* out_long)
+static void fksm_hash_page(struct page* page, u64* out_short, u8* out_long)
 {
     int err;                  // hash output error code
     u8* addr;                 // page mapping address
@@ -103,7 +109,7 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     struct page_metadata* current_meta;   // metadata for current page
     struct page_metadata* existing_meta;  // metadata from hash_tree
     struct first_level_bucket* hash_tree; // stack ref to hash tree
-    u64* out_short;                        // short hash output
+    u64* out_short;                       // short hash output
     u8* out_long;                         // long hash output
     int code;                             // replace_page output code
 
@@ -136,13 +142,17 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
         // add new_meta to hash_tree and check if return is not null (already
         // existing metadata)
-        pr_info("%p | %llu | %p | %p", hash_tree, *out_short, out_long,
-                current_meta);
+
+        print_meta(0, current_meta);
         existing_meta = hash_tree_get_or_create(hash_tree, *out_short, out_long,
                                                 current_meta);
+
         if (existing_meta != NULL)
         {
+            print_meta(1, existing_meta);
             // replace_page condition, we can merge this page into curr_meta
+            pr_info("FKSM_REPLACE: %p | %p | %p | %p", current_meta->vma,
+                    current_meta->page, existing_meta->page, current_meta->pte);
             code = replace_page(current_meta->vma, current_meta->page,
                                 existing_meta->page, *current_meta->pte);
             if (code == -EFAULT)
@@ -153,14 +163,13 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
             {
                 pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
             }
-
-            // throw these out, they exist already
-            kfree(current_meta);            
+            // throw this out, they exist already
+            kfree(current_meta);
         }
         kfree(out_short);
         kfree(out_long);
     }
-    
+
     return 0;
 }
 
