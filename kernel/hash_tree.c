@@ -83,8 +83,7 @@ static int rb_insert(struct rb_root* root, struct hash_tree_node* node_to_add)
             new_node = &((*new_node)->rb_right);
         }
         else
-        { // Otherwise, return an error code
-            pr_err("HASH_TREE_ERROR: blake2b collision in red-black tree");
+        { // Otherwise, return an error
             return -1;
         }
     }
