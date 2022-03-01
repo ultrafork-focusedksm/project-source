@@ -522,9 +522,14 @@ int hash_tree_destroy(struct first_level_bucket* map) {
 				if (curr_container->buckets[i].in_use) {
 					struct rb_root* curr_tree;
 					struct rb_node* curr_node;
+					struct hash_tree_node* prev_node;
 					curr_tree = &curr_container->buckets[i].tree;
-					for(curr_node = rb_last(curr_tree); curr_node; curr_node=rb_prev(curr_node)) {
-						vfree(container_of(curr_node, struct hash_tree_node, node)); //free the current node
+					curr_node = rb_last(curr_tree);
+					while(curr_node) {
+						prev_node = container_of(curr_node, struct hash_tree_node, node);
+						curr_node = rb_prev(curr_node);
+						kfree(prev_node->metadata);
+						vfree(prev_node); //free the current node
 					}
 				}
 				vfree(&curr_container->buckets[i]);
@@ -534,9 +539,13 @@ int hash_tree_destroy(struct first_level_bucket* map) {
 				curr_container = curr_container->next;
 				vfree(prev_container);
 			}
+			else {
+				vfree(curr_container);
+			}
 		}
 		vfree(&map[i]);
 	}
+	return 0;
 }
 
 int sus_mod_htree(int flags)
