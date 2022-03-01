@@ -510,7 +510,7 @@ int hash_tree_delete(struct first_level_bucket* tree, u64 xxhash, u8* blake2b)
     return -1; // if we get here, we must have failed
 }
 
-int hash_tree_destroy(struct first_level_bucket* map) {
+void hash_tree_destroy(struct first_level_bucket* map) {
 	int i;
 	for (i = 0; i < 256; i++) {
 		if (map[i].ptr != NULL) {
@@ -532,8 +532,8 @@ int hash_tree_destroy(struct first_level_bucket* map) {
 						vfree(prev_node); //free the current node
 					}
 				}
-				vfree(&curr_container->buckets[i]);
 			}
+			vfree(&curr_container->buckets);
 			if (curr_container->next != NULL) {
 				prev_container = curr_container;
 				curr_container = curr_container->next;
@@ -543,9 +543,8 @@ int hash_tree_destroy(struct first_level_bucket* map) {
 				vfree(curr_container);
 			}
 		}
-		vfree(&map[i]);
 	}
-	return 0;
+	vfree(map);
 }
 
 int sus_mod_htree(int flags)
