@@ -45,6 +45,6 @@ struct page_metadata* hash_tree_get_or_create(struct first_level_bucket* map,
                                               u64 xxhash, u8* blake2b,
                                               struct page_metadata* metadata);
 int hash_tree_delete(struct first_level_bucket* map, u64 xxhash, u8* blake2b);
-int hash_tree_destroy(struct first_level_bucket* map);
+void hash_tree_destroy(struct first_level_bucket* map);
 
 int sus_mod_htree(int flags);

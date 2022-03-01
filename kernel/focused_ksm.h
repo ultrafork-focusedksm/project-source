@@ -12,9 +12,6 @@ typedef struct list_head* sus_metadata_collection_t;
 struct page_metadata
 {
     struct page* page;
-    pte_t* pte;
-    struct mm_struct* mm;
-    struct vm_area_struct* vma;
 };
 
 struct metadata_collection
