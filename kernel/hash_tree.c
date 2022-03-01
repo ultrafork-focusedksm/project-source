@@ -40,8 +40,8 @@ second_level_init(struct second_level_container* previous)
         new_container->buckets[i].tree =
             RB_ROOT; // Initialize the red-black tree in each bucket
     }
-    new_container->next = NULL; // Pointer to next container starts as null
-                                // since there is no next container
+    new_container->next = NULL;     // Pointer to next container starts as null
+                                    // since there is no next container
     new_container->prev = previous; // Set up previous container
     return new_container;
 }

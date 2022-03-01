@@ -37,13 +37,6 @@ void kprint_bytes(u8* input, size_t size)
         pr_cont(KERN_INFO "\n");
     }
 }
-
-void print_meta(int d, struct page_metadata* meta)
-{
-    pr_info("FKSM_META_%d: %p | %p | %p | %p", d, meta->page, meta->pte,
-            meta->vma, meta->mm);
-}
-
 static struct task_struct* find_task_from_pid(unsigned long pid)
 {
     struct pid* pid_struct = find_get_pid(pid);
@@ -131,11 +124,8 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
         current_meta = kmalloc(sizeof(struct page_metadata), GFP_KERNEL);
 
-        // collect metadata
+        // collect metadata (TODO: refactor metadata_struct to be just page*)
         current_meta->page = current_page;
-        current_meta->pte = pte;
-        current_meta->vma = walk->vma;
-        current_meta->mm = walk->mm;
 
         // hold local ref to hash tree (only needed on compatible)
         hash_tree = (struct first_level_bucket*)walk->private;
@@ -143,18 +133,20 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         // add new_meta to hash_tree and check if return is not null (already
         // existing metadata)
 
-        print_meta(0, current_meta);
+        // pr_info("FKSM_META: %p | %p | %p | %p", current_page, pte,
+        //     walk->vma, walk->mm);
         existing_meta = hash_tree_get_or_create(hash_tree, *out_short, out_long,
                                                 current_meta);
 
-        if (existing_meta != NULL)
+        // todo: remove unneccesary data in meta
+        if (existing_meta != NULL && current_meta->page != existing_meta->page)
         {
-            print_meta(1, existing_meta);
+
             // replace_page condition, we can merge this page into curr_meta
-            pr_info("FKSM_REPLACE: %p | %p | %p | %p", current_meta->vma,
-                    current_meta->page, existing_meta->page, current_meta->pte);
-            code = replace_page(current_meta->vma, current_meta->page,
-                                existing_meta->page, *current_meta->pte);
+            // pr_info("FKSM_REPLACE: %p | %p | %p | %p", walk->vma,
+            //         current_page, existing_meta->page, pte);
+            code = sus_replace_page(walk->vma, current_page,
+                                    existing_meta->page, *pte);
             if (code == -EFAULT)
             {
                 pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
@@ -209,6 +201,8 @@ int sus_mod_merge(unsigned long pid1, unsigned long pid2)
     pr_info("FKSM_MAIN: pid2 start");
     scan(pid2, hash_tree);
     pr_info("FKSM_MAIN: end");
+
+    hash_tree_destroy(hash_tree);
 
     return 0;
 }
