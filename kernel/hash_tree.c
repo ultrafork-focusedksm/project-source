@@ -533,7 +533,7 @@ void hash_tree_destroy(struct first_level_bucket* map) {
 					}
 				}
 			}
-			vfree(&curr_container->buckets);
+			vfree(curr_container->buckets);
 			if (curr_container->next != NULL) {
 				prev_container = curr_container;
 				curr_container = curr_container->next;
