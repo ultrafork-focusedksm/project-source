@@ -521,6 +521,7 @@ void hash_tree_destroy(struct first_level_bucket* map)
     {
         if (map[i].ptr != NULL)
         {
+        	pr_info("got pointer from first level");
             int j;
             struct second_level_container* curr_container;
             struct second_level_container* prev_container;
@@ -528,22 +529,24 @@ void hash_tree_destroy(struct first_level_bucket* map)
             while (curr_container) {
 		        for (j = 0; j < CONTAINER_SIZE; j++)
 		        {
-		            if (curr_container->buckets[i].in_use)
-		            {
-		                struct rb_root* curr_tree;
-		                struct rb_node* curr_node;
-		                struct hash_tree_node* prev_node;
-		                curr_tree = &curr_container->buckets[i].tree;
-		                curr_node = rb_last(curr_tree);
-		                while (curr_node)
-		                {
-		                    prev_node = container_of(curr_node,
-		                                             struct hash_tree_node, node);
-		                    curr_node = rb_prev(curr_node);
-		                    kfree(prev_node->metadata);
-		                    vfree(prev_node); // free the current node
-		                }
-		            }
+		        	pr_info("curr_container: %p", curr_container);
+			        if (curr_container->buckets[j].in_use)
+			        {
+			            struct rb_root* curr_tree;
+			            struct rb_node* curr_node;
+			            struct hash_tree_node* prev_node;
+			            curr_tree = &curr_container->buckets[j].tree;
+			            curr_node = rb_last(curr_tree);
+			            while (curr_node)
+			            {
+			            	pr_info("curr_node: %p", curr_node);
+			                prev_node = container_of(curr_node,
+			                                         struct hash_tree_node, node);
+			                curr_node = rb_prev(curr_node);
+			                kfree(prev_node->metadata);
+			                vfree(prev_node); // free the current node
+			            }
+			        }
 		        }
 		        vfree(curr_container->buckets);
 		        if (curr_container->next != NULL)
@@ -555,6 +558,7 @@ void hash_tree_destroy(struct first_level_bucket* map)
 		        else
 		        {
 		            vfree(curr_container);
+		            pr_info("finished destroying container");
 		            break;//we've hit the end
 		        }
             }
