@@ -1,6 +1,6 @@
 #ifndef _ULTRAFORK_H
 #define _ULTRAFORK_H
 
-int sus_mod_fork(unsigned long pid, unsigned flags);
+int sus_mod_fork(unsigned long pid, unsigned char flags);
 
 #endif
