@@ -13,6 +13,10 @@ struct first_level_bucket* first_level_init(void)
     struct first_level_bucket* new_hash_tree =
         vzalloc(FIRST_LEVEL_SIZE *
                 sizeof(struct first_level_bucket)); // Allocate 256 element tree
+	int i = 0;
+	for (; i < 256; i++) {
+		new_hash_tree[i].ptr = NULL;
+	}
     return new_hash_tree;
 }
 
@@ -521,35 +525,38 @@ void hash_tree_destroy(struct first_level_bucket* map)
             struct second_level_container* curr_container;
             struct second_level_container* prev_container;
             curr_container = map[i].ptr;
-            for (j = 0; j < CONTAINER_SIZE; j++)
-            {
-                if (curr_container->buckets[i].in_use)
-                {
-                    struct rb_root* curr_tree;
-                    struct rb_node* curr_node;
-                    struct hash_tree_node* prev_node;
-                    curr_tree = &curr_container->buckets[i].tree;
-                    curr_node = rb_last(curr_tree);
-                    while (curr_node)
-                    {
-                        prev_node = container_of(curr_node,
-                                                 struct hash_tree_node, node);
-                        curr_node = rb_prev(curr_node);
-                        kfree(prev_node->metadata);
-                        vfree(prev_node); // free the current node
-                    }
-                }
-            }
-            vfree(curr_container->buckets);
-            if (curr_container->next != NULL)
-            {
-                prev_container = curr_container;
-                curr_container = curr_container->next;
-                vfree(prev_container);
-            }
-            else
-            {
-                vfree(curr_container);
+            while (curr_container) {
+		        for (j = 0; j < CONTAINER_SIZE; j++)
+		        {
+		            if (curr_container->buckets[i].in_use)
+		            {
+		                struct rb_root* curr_tree;
+		                struct rb_node* curr_node;
+		                struct hash_tree_node* prev_node;
+		                curr_tree = &curr_container->buckets[i].tree;
+		                curr_node = rb_last(curr_tree);
+		                while (curr_node)
+		                {
+		                    prev_node = container_of(curr_node,
+		                                             struct hash_tree_node, node);
+		                    curr_node = rb_prev(curr_node);
+		                    kfree(prev_node->metadata);
+		                    vfree(prev_node); // free the current node
+		                }
+		            }
+		        }
+		        vfree(curr_container->buckets);
+		        if (curr_container->next != NULL)
+		        {
+		            prev_container = curr_container;
+		            curr_container = curr_container->next;
+		            vfree(prev_container);
+		        }
+		        else
+		        {
+		            vfree(curr_container);
+		            break;//we've hit the end
+		        }
             }
         }
     }
