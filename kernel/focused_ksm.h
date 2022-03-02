@@ -37,6 +37,6 @@ struct walk_ctx
     struct merge_node* merge_tail;
 };
 
-int sus_mod_merge(unsigned long pid1, unsigned long pid2);
+int sus_mod_merge(pid_t pid1, pid_t pid2);
 
 #endif

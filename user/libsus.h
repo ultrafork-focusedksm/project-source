@@ -11,7 +11,7 @@ int sus_fksm_merge(int, pid_t, pid_t);
 
 int sus_hash_tree_test(int fd, int flags);
 
-int sus_ufrk_fork(int, pid_t, uint8_t);
+int sus_ufrk_fork(int, pid_t);
 
 int sus_cow_counter(int, pid_t, size_t* cow, size_t* vm);
 

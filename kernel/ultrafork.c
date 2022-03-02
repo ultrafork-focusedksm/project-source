@@ -623,7 +623,7 @@ static void clean_parent_children(struct task_struct* parent)
     }
 }
 
-int sus_mod_fork(unsigned long pid, unsigned char flags)
+int sus_mod_fork(pid_t pid)
 {
     u64 start;
     struct task_struct* parent;

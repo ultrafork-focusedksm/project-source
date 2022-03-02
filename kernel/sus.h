@@ -2,10 +2,12 @@
 #define _SUS_H
 
 #ifdef SUS_USERSPACE
-#include <sys/ioctl.h>
 #include <stddef.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
 #else
 #include <linux/ioctl.h>
+#include <linux/types.h>
 #endif
 
 #define SUS_MOD_IOCTL_MAGIC 0xFA
@@ -16,14 +18,13 @@
 
 struct fksm_ctx
 {
-    unsigned long pid1;
-    unsigned long pid2;
+    pid_t pid1;
+    pid_t pid2;
 };
 
 struct ufrk_ctx
 {
-    unsigned long pid;
-    unsigned char flags;
+    pid_t pid;
 };
 
 struct hash_tree_ctx
@@ -33,7 +34,7 @@ struct hash_tree_ctx
 
 struct cow_ctx
 {
-    unsigned long pid;
+    pid_t pid;
     size_t cow_bytes;
     size_t vm_bytes;
 };

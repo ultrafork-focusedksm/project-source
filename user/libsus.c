@@ -45,7 +45,7 @@ int sus_hash_tree_test(int fd, int flags)
     }
 }
 
-int sus_ufrk_fork(int fd, pid_t pid, uint8_t flags)
+int sus_ufrk_fork(int fd, pid_t pid)
 {
     if (pid <= 0)
     {
@@ -55,7 +55,6 @@ int sus_ufrk_fork(int fd, pid_t pid, uint8_t flags)
     struct sus_ctx ctx;
     ctx.mode = SUS_MODE_UFRK;
     ctx.ufrk.pid = pid;
-    ctx.ufrk.flags = flags;
 
     if (ioctl(fd, SUS_MOD_UFRK_FORK, &ctx) == -1)
     {

@@ -120,7 +120,7 @@ static void ufrk_fork_test(int fd, bool threading)
         // offset the call to ultrafork so the cow counter has time to run
         // in the child.
         printf("Ultrafork\n");
-        sus_ufrk_fork(fd, getpid(), 0);
+        sus_ufrk_fork(fd, getpid());
         // fail_fast();
         printf("Survived ufrk: %d\n", getpid());
     }
