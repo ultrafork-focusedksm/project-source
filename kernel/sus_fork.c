@@ -804,7 +804,7 @@ static struct task_struct* sus_copy_process(struct task_struct* target,
     fork_write_unlock_irq();
 
     proc_fork_connector(p);
-    sched_post_fork(p, args);
+    sched_post_fork(p);
     cgroup_post_fork(p, args);
     perf_event_fork(p);
 

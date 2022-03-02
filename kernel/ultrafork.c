@@ -150,12 +150,18 @@ static int recursive_task_traverse(struct task_struct* task, void* data)
     {
         if (task->pid != task_pid_vnr(thread))
         {
-            make_new_task_node(thread, ctx, TASK_THREAD);
+            pr_err(
+                "ufrk: threads are not supported: Process %d has thread %d\n",
+                thread->tgid, thread->pid);
+            ctx->ret_status = 1;
+            return RECURSIVE_TASK_WALKER_STOP;
+            /* make_new_task_node(thread, ctx, TASK_THREAD); */
 
-            pr_info(
-                "thread %d has pid %d, parent %d and real_parent %d, tgid=%d\n",
-                task_pid_vnr(thread), thread->pid, thread->parent->pid,
-                thread->real_parent->pid, thread->tgid);
+            /* pr_info( */
+            /* "thread %d has pid %d, parent %d and real_parent %d, tgid=%d\n",
+             */
+            /* task_pid_vnr(thread), thread->pid, thread->parent->pid, */
+            /* thread->real_parent->pid, thread->tgid); */
         }
     }
 
@@ -295,7 +301,8 @@ static int rebuild_siblings(struct pid_translation_table* tt)
         cloned_task = find_task_from_pid(cloned_task_pid);
         pr_info("iterating on pid %d\n", cloned_task->pid);
 
-        if (is_thread(task)) {
+        if (is_thread(task))
+        {
             break;
         }
 
@@ -622,8 +629,10 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
     u64 start;
     struct task_struct* parent;
     struct pid_translation_table* tt;
-    struct task_walk_context wctx = {
-        .task = NULL, .is_topmost = TOPMOST_UNINITIALIZED, .task_count = 0};
+    struct task_walk_context wctx = {.task = NULL,
+                                     .is_topmost = TOPMOST_UNINITIALIZED,
+                                     .task_count = 0,
+                                     .ret_status = 0};
     INIT_LIST_HEAD(&wctx.list);
 
     if (pid < 1)
