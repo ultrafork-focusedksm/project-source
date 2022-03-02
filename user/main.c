@@ -192,10 +192,17 @@ int child(int num, int addr_segment_id, int pids_segment_id)
         addrs[(child_offset + i)] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[(child_offset + i)], 0xaa, getpagesize());
     }
+    sleep(5);
+    printf("child%d awake, free pages\n", num);
+
+    for (int i = 0; i < PAGES_PER_PID; i++)
+    {
+        free(addrs[(child_offset + i)]);
+    }
+
     shmdt(addrs);
     shmdt(pids);
 
-    sleep(60);
     return 0;
 }
 
@@ -252,27 +259,8 @@ int fksm_parent(int fd)
         addrs[i] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[i], 0xaa, getpagesize());
     }
-    sleep(3);
-    uint8_t blake2b_out[BLAKE2B_OUTBYTES];
-    for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
-    {
-        // print_bytes(addrs[i], getpagesize());
-        int res = blake2b(blake2b_out, addrs[i], NULL, BLAKE2B_OUTBYTES,
-                          getpagesize(), 0);
-        if (res == -1)
-        {
-            printf("blake2b hash error");
-        }
-        else
-        {
-            printf("hash for #%d: %p \n", i, addrs[i]);
-            print_bytes(blake2b_out, BLAKE2B_OUTBYTES);
-        }
-        memset(blake2b_out, 0, BLAKE2B_OUTBYTES);
-        printf("\n");
-    }
+    sleep(2); // wait for children
 
-    /* int fd = sus_open(); */
     if (fd <= 0)
     {
         printf("Error opening ioctl: %d\n", errno);
@@ -290,21 +278,22 @@ int fksm_parent(int fd)
         {
             printf("Wrote to ioctl\n");
         }
-        sleep(1); // arbitrary
+        sleep(2); // arbitrary, wait for FKSM
         printf("Slept\n");
     }
-
-    /* sus_close(fd); */
-    /* printf("Closed ioctl\n"); */
+    printf("FKSM done, wait for children\n");
+    sleep(2); // wait for all children to die
+    printf("FKSM children done, parent release\n");
 
 release:
     shmdt(pids);
-    shmctl(pids_segment_id, IPC_RMID, 0);
-    for (int i = 0; i < PAGES_PER_PID * NUM_PIDS; i++)
+    for (int i = 0; i < PAGES_PER_PID; i++)
     {
         free(addrs[i]);
     }
     shmdt(addrs);
+
+    shmctl(pids_segment_id, IPC_RMID, 0);
     shmctl(addr_segment_id, IPC_RMID, 0);
 
     return 0;

@@ -1,4 +1,4 @@
-CFLAGS = -Wall -Werror -Wextra -Wpedantic -O2 -fPIC -MMD -DSUS_USERSPACE -D_GNU_SOURCE -g
+CFLAGS = -Wall -Wextra -Wpedantic -O2 -fPIC -MMD -DSUS_USERSPACE -D_GNU_SOURCE -g
 LDFLAGS = -pthread -lrt -lb2
 
 OBJECT_DIR = obj
