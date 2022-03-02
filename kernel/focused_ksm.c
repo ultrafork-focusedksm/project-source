@@ -37,6 +37,12 @@ void kprint_bytes(u8* input, size_t size)
         pr_cont(KERN_INFO "\n");
     }
 }
+
+static size_t scanned; // counter for valid pages that are hashed and looked up
+                       // on the hash tree
+static size_t merge_success; // successful merges of pages
+static size_t merge_fail;    // failed merges of pages
+
 static struct task_struct* find_task_from_pid(unsigned long pid)
 {
     struct pid* pid_struct = find_get_pid(pid);
@@ -115,6 +121,8 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
     if (PageAnon(current_page))
     {
         // compatible page type, hash it
+        scanned += 1;
+
         out_short = kmalloc(sizeof(u64), GFP_KERNEL);
         out_long = kmalloc(BLAKE2B_512_HASH_SIZE, GFP_KERNEL);
 
@@ -194,10 +202,12 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
         if (code == -EFAULT)
         {
             pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
+            merge_fail += 1;
         }
         else
         {
             pr_debug("FKSM_MERGE: REPLACE_PAGE SUCCESS");
+            merge_success += 1;
         }
 
         // cursor iteration
@@ -225,12 +235,18 @@ int sus_mod_merge(unsigned long pid1, unsigned long pid2)
 {
     struct first_level_bucket* hash_tree;
     hash_tree = first_level_init();
+    scanned = 0;
+    merge_success = 0;
+    merge_fail = 0;
 
     pr_debug("FKSM_MAIN: scan for pid %lu start", pid1);
     scan(pid1, hash_tree);
     pr_debug("FKSM_MAIN: scan for pid %lu start", pid2);
     scan(pid2, hash_tree);
     pr_debug("FKSM_MAIN: end");
+    pr_info("FKSM_INFO: scanned %ld", scanned);
+    pr_info("FKSM_INFO: merge_success %ld", merge_success);
+    pr_info("FKSM_INFO: merge_fail %ld", merge_fail);
 
     hash_tree_destroy(hash_tree);
     pr_debug("FKSM_MAIN: hash_tree destroyed");

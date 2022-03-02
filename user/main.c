@@ -177,7 +177,7 @@ static void print_help(const char* progname)
     printf("%s -[uhtc]\nu: ultrafork test\nh: print help\n", progname);
 }
 
-int child(int num, int addr_segment_id, int pids_segment_id)
+int fksm_child(int num, int addr_segment_id, int pids_segment_id, int fd)
 {
     void** addrs = shmat(addr_segment_id, 0, 0);
     int* pids = shmat(pids_segment_id, 0, 0);
@@ -187,13 +187,17 @@ int child(int num, int addr_segment_id, int pids_segment_id)
     int child_offset;
     child_offset = PAGES_PER_PID *
                    (num + 1); // offset in addrs based on which child we are
+    cow_count_current_process(fd);
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
         addrs[(child_offset + i)] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[(child_offset + i)], 0xaa, getpagesize());
     }
+    cow_count_current_process(fd);
     sleep(5);
-    printf("child%d awake, free pages\n", num);
+    cow_count_current_process(fd);
+
+    printf("child%d free pages\n", num);
 
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
@@ -245,7 +249,7 @@ int fksm_parent(int fd)
         if (cpid == 0)
         { /* Code executed by child */
             // printf("%d | %d \n", getppid(), getpid());
-            child(i, addr_segment_id, pids_segment_id);
+            fksm_child(i, addr_segment_id, pids_segment_id,fd);
             return 0;
         }
     }
@@ -254,11 +258,13 @@ int fksm_parent(int fd)
     addrs = shmat(addr_segment_id, 0, 0);
     pids = shmat(pids_segment_id, 0, 0);
     pids[0] = getpid();
+    cow_count_current_process(fd);
     for (int i = 0; i < PAGES_PER_PID; i++)
     {
         addrs[i] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[i], 0xaa, getpagesize());
     }
+    cow_count_current_process(fd);
     sleep(2); // wait for children
 
     if (fd <= 0)
@@ -269,6 +275,8 @@ int fksm_parent(int fd)
     for (i = 0; i < NUM_CHILDREN; i++)
     {
         int ret = sus_fksm_merge(fd, pids[0], pids[i + 1]);
+        cow_count_current_process(fd);
+
         if (ret != 0)
         {
             printf("Error writing to ioctl: %d\n", ret);
@@ -279,7 +287,6 @@ int fksm_parent(int fd)
             printf("Wrote to ioctl\n");
         }
         sleep(2); // arbitrary, wait for FKSM
-        printf("Slept\n");
     }
     printf("FKSM done, wait for children\n");
     sleep(2); // wait for all children to die
