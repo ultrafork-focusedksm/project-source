@@ -455,9 +455,9 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
     }
     else
     {
-
         if (ctx->is_process == TASK_THREAD)
         {
+            int ret;
             // we are forking a thread
             pid_t new_pid = try_translate_pid(ctx->tt, task->parent->pid);
             pr_info("rfork: not-topmost, %d reparented to %d\n",
@@ -469,8 +469,7 @@ static int recursive_fork(struct task_struct* task, u32 task_id,
 
             forked_task->parent = forked_task->real_parent;
 
-            int ret =
-                sus_copy_creds(forked_task, args->flags, forked_task->parent);
+            ret = sus_copy_creds(forked_task, args->flags, forked_task->parent);
             if (0 != ret)
             {
                 pr_err("rfork_thread: unable to copy creds: %d\n", ret);
