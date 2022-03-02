@@ -98,13 +98,13 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
      * return 0 from the callback to keep going. if something bad happens return
      * negative value. do not return a positive value
      */
-    struct page* current_page;            // current page in callback
-    struct page_metadata* current_meta;   // metadata for current page
-    struct page_metadata* existing_meta;  // metadata from hash_tree
-    struct first_level_bucket* hash_tree; // stack ref to hash tree
-    u64* out_short;                       // short hash output
-    u8* out_long;                         // long hash output
-    int code;                             // replace_page output code
+    struct page* current_page;           // current page in callback
+    struct page_metadata* current_meta;  // metadata for current page
+    struct page_metadata* existing_meta; // metadata from hash_tree
+    struct walk_ctx* ctx;                // context object
+    struct merge_node* new_node;         // new mergeable object
+    u64* out_short;                      // short hash output object
+    u8* out_long;                        // long hash output object
 
     current_page = pte_page(*pte); // get the page from pte
     if (IS_ERR(current_page))
@@ -112,8 +112,6 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         pr_err("FKSM_ERROR: pte_page lookup error");
     }
 
-    // TODO: find out if THP will be walked through or only pointed to the head
-    // TODO: compound pages walking through tails too? Locking the group?
     if (PageAnon(current_page))
     {
         // compatible page type, hash it
@@ -124,40 +122,36 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
 
         current_meta = kmalloc(sizeof(struct page_metadata), GFP_KERNEL);
 
-        // collect metadata (TODO: refactor metadata_struct to be just page*)
+        // TODO: remove metadata wrapper around page*
+        // this used to have more uses but we've refactored it
         current_meta->page = current_page;
 
         // hold local ref to hash tree (only needed on compatible)
-        hash_tree = (struct first_level_bucket*)walk->private;
+        ctx = (struct walk_ctx*)walk->private;
 
-        // add new_meta to hash_tree and check if return is not null (already
-        // existing metadata)
-
-        // pr_info("FKSM_META: %p | %p | %p | %p", current_page, pte,
-        //     walk->vma, walk->mm);
-        existing_meta = hash_tree_get_or_create(hash_tree, *out_short, out_long,
-                                                current_meta);
+        // add new_meta to hash_tree and check if return is not null
+        existing_meta = hash_tree_get_or_create(ctx->hash_tree, *out_short,
+                                                out_long, current_meta);
 
         // todo: remove unneccesary data in meta
         if (existing_meta != NULL && current_meta->page != existing_meta->page)
         {
+            // we want to replace page but cannot do it yet because of traversal
+            // allocate merge object and replace_page later
+            new_node = kmalloc(sizeof(struct merge_node), GFP_KERNEL);
+            new_node->vma = walk->vma;
+            new_node->page = current_page;
+            new_node->existing_page = existing_meta->page;
+            new_node->pte = *pte;
+            // add new_node as next element, update tail position
+            ctx->merge_tail->next = new_node;
+            ctx->merge_tail = new_node;
 
-            // replace_page condition, we can merge this page into curr_meta
-            // pr_info("FKSM_REPLACE: %p | %p | %p | %p", walk->vma,
-            //         current_page, existing_meta->page, pte);
-            code = sus_replace_page(walk->vma, current_page,
-                                    existing_meta->page, *pte);
-            if (code == -EFAULT)
-            {
-                pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
-            }
-            else
-            {
-                pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
-            }
-            // throw this out, they exist already
+            // throw this out, it exists already
             kfree(current_meta);
         }
+
+        // clean up for our allocated hash output objects
         kfree(out_short);
         kfree(out_long);
     }
@@ -170,20 +164,53 @@ static struct mm_walk_ops task_walk_ops = {.pte_entry = callback_pte_range};
 static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
 {
     struct task_struct* task;
+    struct walk_ctx* ctx;
+    struct merge_node *prev_node, *curr_node, *head, *tail;
+    int code;
 
     task = find_task_from_pid(pid); // get task struct
     pr_info("FKSM: FIND TASK FOR %lu", pid);
+    BUG_ON(IS_ERR(task));
 
-    if (IS_ERR(task))
-    {
-        pr_err("FKSM_ERROR: task struct not found");
-    }
+    head = kmalloc(sizeof(struct merge_node), GFP_KERNEL);
+    tail = head;
+    ctx = kmalloc(sizeof(struct walk_ctx), GFP_KERNEL);
+    ctx->hash_tree = hash_tree;
+    ctx->merge_tail = tail;
 
     pr_info("FKSM: READ LOCK FOR SCAN");
     mmap_read_lock(task->active_mm);
 
     pr_info("FKSM: WALK START");
-    walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops, hash_tree);
+
+    walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops, ctx);
+    curr_node = head->next;
+    while (curr_node->next != NULL)
+    {
+        pr_info("FKSM_REPLACE: %p | %p | %p | %lu", curr_node->vma,
+                curr_node->page, curr_node->existing_page, curr_node->pte.pte);
+
+        code = replace_page(curr_node->vma, curr_node->page,
+                            curr_node->existing_page, curr_node->pte);
+        if (code == -EFAULT)
+        {
+            pr_err("FKSM_MERGE: REPLACE_PAGE FAIL");
+        }
+        else
+        {
+            pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
+        }
+
+        if (curr_node->next != NULL)
+        {
+            prev_node = curr_node;
+            curr_node = curr_node->next;
+            kfree(prev_node);
+        }
+    }
+    // free the tail and head, we only freed up to the 2nd to last node
+    kfree(curr_node);
+    kfree(head);
 
     pr_info("FKSM: WALK END, UNLOCKING");
     mmap_read_unlock(task->active_mm);
