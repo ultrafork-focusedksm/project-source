@@ -230,6 +230,7 @@ int sus_mod_merge(unsigned long pid1, unsigned long pid2)
     pr_info("FKSM_MAIN: end");
 
     hash_tree_destroy(hash_tree);
+    pr_info("FKSM_MAIN: hash_tree destroyed");
 
     return 0;
 }
