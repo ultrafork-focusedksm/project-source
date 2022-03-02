@@ -169,7 +169,6 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
     int code;
 
     task = find_task_from_pid(pid); // get task struct
-    pr_info("FKSM: FIND TASK FOR %lu", pid);
     BUG_ON(IS_ERR(task));
 
     head = kmalloc(sizeof(struct merge_node), GFP_KERNEL);
@@ -178,17 +177,16 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
     ctx->hash_tree = hash_tree;
     ctx->merge_tail = tail;
 
-    pr_info("FKSM: READ LOCK FOR SCAN");
+    pr_debug("FKSM: SCAN START");
     mmap_read_lock(task->active_mm);
-
-    pr_info("FKSM: WALK START");
 
     walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops, ctx);
     curr_node = head->next;
     while (curr_node)
     {
-        pr_info("FKSM_REPLACE: %p | %p | %p | %lu", curr_node->vma,
-                curr_node->page, curr_node->existing_page, curr_node->pte.pte);
+        // pr_info("FKSM_REPLACE: %p | %p | %p | %lu", curr_node->vma,
+        //         curr_node->page, curr_node->existing_page,
+        //         curr_node->pte.pte);
 
         // replace_page and result prints
         code = replace_page(curr_node->vma, curr_node->page,
@@ -199,7 +197,7 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
         }
         else
         {
-            pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
+            pr_debug("FKSM_MERGE: REPLACE_PAGE SUCCESS");
         }
 
         // cursor iteration
@@ -217,8 +215,8 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
     }
     kfree(head);
 
-    pr_info("FKSM: WALK END, UNLOCKING");
     mmap_read_unlock(task->active_mm);
+    pr_debug("FKSM: SCAN END");
 
     return 0; // returning int in case we want to add return flags
 }
@@ -228,14 +226,14 @@ int sus_mod_merge(unsigned long pid1, unsigned long pid2)
     struct first_level_bucket* hash_tree;
     hash_tree = first_level_init();
 
-    pr_info("FKSM_MAIN: pid1 start");
+    pr_debug("FKSM_MAIN: scan for pid %lu start", pid1);
     scan(pid1, hash_tree);
-    pr_info("FKSM_MAIN: pid2 start");
+    pr_debug("FKSM_MAIN: scan for pid %lu start", pid2);
     scan(pid2, hash_tree);
-    pr_info("FKSM_MAIN: end");
+    pr_debug("FKSM_MAIN: end");
 
     hash_tree_destroy(hash_tree);
-    pr_info("FKSM_MAIN: hash_tree destroyed");
+    pr_debug("FKSM_MAIN: hash_tree destroyed");
 
     return 0;
 }
