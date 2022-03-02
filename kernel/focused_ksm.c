@@ -185,11 +185,12 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
 
     walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops, ctx);
     curr_node = head->next;
-    while (curr_node->next != NULL)
+    while (curr_node)
     {
         pr_info("FKSM_REPLACE: %p | %p | %p | %lu", curr_node->vma,
                 curr_node->page, curr_node->existing_page, curr_node->pte.pte);
 
+        // replace_page and result prints
         code = replace_page(curr_node->vma, curr_node->page,
                             curr_node->existing_page, curr_node->pte);
         if (code == -EFAULT)
@@ -201,15 +202,19 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
             pr_info("FKSM_MERGE: REPLACE_PAGE SUCCESS");
         }
 
+        // cursor iteration
         if (curr_node->next != NULL)
         {
             prev_node = curr_node;
             curr_node = curr_node->next;
             kfree(prev_node);
         }
+        else
+        {
+            kfree(curr_node);
+            break;
+        }
     }
-    // free the tail and head, we only freed up to the 2nd to last node
-    kfree(curr_node);
     kfree(head);
 
     pr_info("FKSM: WALK END, UNLOCKING");
