@@ -74,6 +74,7 @@ struct task_walk_context
     u8 is_topmost;
     /** Indicates if the task is a process or thread. See task_type enum. */
     u8 is_process;
+    u8 ret_status;
 };
 
 static int recursive_task_traverse(struct task_struct* task, void* data);
@@ -83,7 +84,7 @@ static int recursive_task_resume(struct task_struct* task, void* data);
 static void suspend_task(struct task_struct* task);
 static void resume_task(struct task_struct* task);
 
-static struct recursive_task_walker rtask_logger = {
+static struct recursive_task_walker rfork_stop_walker = {
     .task_handler = recursive_task_traverse,
 };
 
@@ -639,7 +640,14 @@ int sus_mod_fork(unsigned long pid, unsigned char flags)
 
     start = sus_time_nanos();
     pr_info("ufrk: locking process group\n");
-    walk_task(parent, &wctx, &rtask_logger);
+    walk_task(parent, &wctx, &rfork_stop_walker);
+
+    if (1 == wctx.ret_status)
+    {
+        // threads are not supported
+        walk_task(parent, NULL, &rfork_resume_walker);
+        return -EINVAL;
+    }
 
     tt = kmalloc(sizeof(struct pid_translation_table) +
                      sizeof(struct pid_translation) * wctx.task_count,
