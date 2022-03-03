@@ -25,7 +25,7 @@
 #include <linux/types.h>
 
 // Helper to print bytes during debugging of hashing functions
-void kprint_bytes(u8* input, size_t size)
+static void kprint_bytes(u8* input, size_t size)
 {
     size_t i;
     size_t j;
@@ -43,12 +43,6 @@ static size_t scanned; // counter for valid pages that are hashed and looked up
                        // on the hash tree
 static size_t merge_success; // successful merges of pages
 static size_t merge_fail;    // failed merges of pages
-
-// static struct task_struct* find_task_from_pid(unsigned long pid)
-// {
-//     struct pid* pid_struct = find_get_pid(pid);
-//     return get_pid_task(pid_struct, PIDTYPE_PID);
-// }
 
 /**
  * Helper function that performs long and short hash on a page of size PAGE_SIZE
@@ -232,7 +226,7 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
     return 0; // returning int in case we want to add return flags
 }
 
-int sus_mod_merge(unsigned long pid1, unsigned long pid2)
+int sus_mod_merge(pid_t pid1, pid_t pid2)
 {
     struct first_level_bucket* hash_tree;
     u64 start, end;
@@ -244,9 +238,9 @@ int sus_mod_merge(unsigned long pid1, unsigned long pid2)
 
     start = sus_time_nanos();
 
-    pr_debug("FKSM_MAIN: scan for pid %lu start", pid1);
+    pr_debug("FKSM_MAIN: scan for pid %d start", pid1);
     scan(pid1, hash_tree);
-    pr_debug("FKSM_MAIN: scan for pid %lu start", pid2);
+    pr_debug("FKSM_MAIN: scan for pid %d start", pid2);
     scan(pid2, hash_tree);
     pr_debug("FKSM_MAIN: end");
 

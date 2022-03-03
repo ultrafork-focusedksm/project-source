@@ -61,7 +61,7 @@ static long sus_mod_ioctl(struct file* f, unsigned int cmd, unsigned long arg)
     case SUS_MOD_UFRK_FORK:
         if (SUS_MODE_UFRK == ctx.mode)
         {
-            ret = sus_mod_fork(ctx.ufrk.pid, ctx.ufrk.flags);
+            ret = sus_mod_fork(ctx.ufrk.pid);
         }
         break;
     case SUS_MOD_HASH_TREE:
