@@ -18,11 +18,8 @@
 
 #define FKSM_ADDR "/fksm-test-addrs"
 #define FKSM_PIDS "/fksm-test-pids"
-#define PAGES_PER_PID 15
 #define NUM_PIDS 2
 #define NUM_CHILDREN (NUM_PIDS - 1)
-#define ADDR_SEGMENT_SIZE                                                      \
-    (8 * NUM_PIDS * PAGES_PER_PID) // 8 byte pointers for each segment
 #define PIDS_SEGMENT_SIZE                                                      \
     (4 * NUM_PIDS) // 4 bytes for 32 bit int * number of pids
 #define PROCESS_SLEEP_TIME 60 * 5
@@ -45,6 +42,7 @@ enum sus_tester_mode
 };
 
 static pthread_t threads[2];
+static int pages_per_pid;
 
 static void print_bytes(uint8_t* input, size_t size)
 {
@@ -185,21 +183,21 @@ int fksm_child(int num, int addr_segment_id, int pids_segment_id, int fd)
     pids[(1 + num)] = getpid(); // offset by 1 for the children segment,
                                 // then offset by num of the current child
     int child_offset;
-    child_offset = PAGES_PER_PID *
+    child_offset = pages_per_pid *
                    (num + 1); // offset in addrs based on which child we are
-    cow_count_current_process(fd);
-    for (int i = 0; i < PAGES_PER_PID; i++)
+    // cow_count_current_process(fd);
+    for (int i = 0; i < pages_per_pid; i++)
     {
         addrs[(child_offset + i)] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[(child_offset + i)], 0xaa, getpagesize());
     }
-    cow_count_current_process(fd);
-    sleep(5);
-    cow_count_current_process(fd);
+    // cow_count_current_process(fd);
+    sleep(2);//wait for parent and ioctl
+    // cow_count_current_process(fd);
 
     printf("child%d free pages\n", num);
 
-    for (int i = 0; i < PAGES_PER_PID; i++)
+    for (int i = 0; i < pages_per_pid; i++)
     {
         free(addrs[(child_offset + i)]);
     }
@@ -217,7 +215,7 @@ int fksm_parent(int fd)
     int i;
 
     int addr_segment_id;
-    addr_segment_id = shmget(IPC_PRIVATE, ADDR_SEGMENT_SIZE,
+    addr_segment_id = shmget(IPC_PRIVATE, (8 * NUM_PIDS * pages_per_pid),
                              IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
     if (addr_segment_id == -1)
     {
@@ -249,7 +247,7 @@ int fksm_parent(int fd)
         if (cpid == 0)
         { /* Code executed by child */
             // printf("%d | %d \n", getppid(), getpid());
-            fksm_child(i, addr_segment_id, pids_segment_id,fd);
+            fksm_child(i, addr_segment_id, pids_segment_id, fd);
             return 0;
         }
     }
@@ -258,14 +256,14 @@ int fksm_parent(int fd)
     addrs = shmat(addr_segment_id, 0, 0);
     pids = shmat(pids_segment_id, 0, 0);
     pids[0] = getpid();
-    cow_count_current_process(fd);
-    for (int i = 0; i < PAGES_PER_PID; i++)
+    // cow_count_current_process(fd);
+    for (int i = 0; i < pages_per_pid; i++)
     {
         addrs[i] = aligned_alloc(getpagesize(), getpagesize());
         memset(addrs[i], 0xaa, getpagesize());
     }
-    cow_count_current_process(fd);
-    sleep(2); // wait for children
+    // cow_count_current_process(fd);
+    sleep(1); // wait for children
 
     if (fd <= 0)
     {
@@ -275,7 +273,7 @@ int fksm_parent(int fd)
     for (i = 0; i < NUM_CHILDREN; i++)
     {
         int ret = sus_fksm_merge(fd, pids[0], pids[i + 1]);
-        cow_count_current_process(fd);
+        // cow_count_current_process(fd);
 
         if (ret != 0)
         {
@@ -286,15 +284,15 @@ int fksm_parent(int fd)
         {
             printf("Wrote to ioctl\n");
         }
-        sleep(2); // arbitrary, wait for FKSM
+        sleep(1); // arbitrary, wait for FKSM
     }
     printf("FKSM done, wait for children\n");
-    sleep(2); // wait for all children to die
+    sleep(1); // wait for all children to die
     printf("FKSM children done, parent release\n");
 
 release:
     shmdt(pids);
-    for (int i = 0; i < PAGES_PER_PID; i++)
+    for (int i = 0; i < pages_per_pid; i++)
     {
         free(addrs[i]);
     }
@@ -327,7 +325,7 @@ int main(int argc, char* argv[])
     bool threading = false;
     bool quiet = false;
 
-    while ((c = getopt(argc, argv, "quhfatc:")) != -1)
+    while ((c = getopt(argc, argv, "quhf:atc:")) != -1)
     {
         switch (c)
         {
@@ -343,6 +341,7 @@ int main(int argc, char* argv[])
             break;
         case 'f':
             mode = FKSM;
+            pages_per_pid = atoi(optarg);
             break;
         case 'a':
             mode = HTREE;

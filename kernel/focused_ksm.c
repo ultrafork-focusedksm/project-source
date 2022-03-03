@@ -1,6 +1,7 @@
 #include "focused_ksm.h"
 #include "hash_tree.h"
 #include "sus.h"
+#include "util.h"
 #include <asm/types.h>
 #include <crypto/blake2b.h>
 #include <crypto/internal/hash.h>
@@ -43,11 +44,11 @@ static size_t scanned; // counter for valid pages that are hashed and looked up
 static size_t merge_success; // successful merges of pages
 static size_t merge_fail;    // failed merges of pages
 
-static struct task_struct* find_task_from_pid(unsigned long pid)
-{
-    struct pid* pid_struct = find_get_pid(pid);
-    return get_pid_task(pid_struct, PIDTYPE_PID);
-}
+// static struct task_struct* find_task_from_pid(unsigned long pid)
+// {
+//     struct pid* pid_struct = find_get_pid(pid);
+//     return get_pid_task(pid_struct, PIDTYPE_PID);
+// }
 
 /**
  * Helper function that performs long and short hash on a page of size PAGE_SIZE
@@ -234,19 +235,24 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
 int sus_mod_merge(unsigned long pid1, unsigned long pid2)
 {
     struct first_level_bucket* hash_tree;
+    u64 start, end;
+
     hash_tree = first_level_init();
     scanned = 0;
     merge_success = 0;
     merge_fail = 0;
+
+    start = sus_time_nanos();
 
     pr_debug("FKSM_MAIN: scan for pid %lu start", pid1);
     scan(pid1, hash_tree);
     pr_debug("FKSM_MAIN: scan for pid %lu start", pid2);
     scan(pid2, hash_tree);
     pr_debug("FKSM_MAIN: end");
-    pr_info("FKSM_INFO: scanned %ld", scanned);
-    pr_info("FKSM_INFO: merge_success %ld", merge_success);
-    pr_info("FKSM_INFO: merge_fail %ld", merge_fail);
+
+    end = sus_time_nanos();
+    pr_info("FKSM_TESTS: dt %llu scan %ld m_s %ld m_f %ld\n", (end-start),scanned, merge_success,
+            merge_fail);
 
     hash_tree_destroy(hash_tree);
     pr_debug("FKSM_MAIN: hash_tree destroyed");
