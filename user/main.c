@@ -192,10 +192,10 @@ int fksm_child(int num, int addr_segment_id, int pids_segment_id, int fd)
         memset(addrs[(child_offset + i)], 0xaa, getpagesize());
     }
     // cow_count_current_process(fd);
-    sleep(2);//wait for parent and ioctl
+    sleep(3);//wait for parent and ioctl
     // cow_count_current_process(fd);
 
-    printf("child%d free pages\n", num);
+    printf("child%d release\n", num);
 
     for (int i = 0; i < pages_per_pid; i++)
     {
@@ -284,11 +284,9 @@ int fksm_parent(int fd)
         {
             printf("Wrote to ioctl\n");
         }
-        sleep(1); // arbitrary, wait for FKSM
     }
-    printf("FKSM done, wait for children\n");
-    sleep(1); // wait for all children to die
-    printf("FKSM children done, parent release\n");
+    sleep(4); // wait for FKSM and child
+    printf("FKSM done, children done, parent release\n");
 
 release:
     shmdt(pids);

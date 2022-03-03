@@ -39,10 +39,14 @@ static void kprint_bytes(u8* input, size_t size)
     }
 }
 
-static size_t scanned; // counter for valid pages that are hashed and looked up
-                       // on the hash tree
+static size_t scanned;       // counter for valid pages "scanned"
 static size_t merge_success; // successful merges of pages
 static size_t merge_fail;    // failed merges of pages
+static u64 temp_timer_start, temp_timer_end; // used for totals (see below)
+static u64 rah_total; // running avg hash (total for the mean)
+static u64 ral_total; // running avg tree lookup (total for the mean)
+static int rah_count; // running avg hash (count for the mean)
+static int ral_count; // running avg tree lookup (count for the mean)
 
 /**
  * Helper function that performs long and short hash on a page of size PAGE_SIZE
@@ -121,7 +125,12 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         out_short = kmalloc(sizeof(u64), GFP_KERNEL);
         out_long = kmalloc(BLAKE2B_512_HASH_SIZE, GFP_KERNEL);
 
+        // call timer start, then end after hash, add to total and count
+        temp_timer_start = sus_time_nanos();
         fksm_hash_page(current_page, out_short, out_long);
+        temp_timer_end = sus_time_nanos();
+        rah_total += (temp_timer_end - temp_timer_start);
+        rah_count += 1;
 
         current_meta = kmalloc(sizeof(struct page_metadata), GFP_KERNEL);
 
@@ -133,8 +142,13 @@ static int callback_pte_range(pte_t* pte, unsigned long addr,
         ctx = (struct walk_ctx*)walk->private;
 
         // add new_meta to hash_tree and check if return is not null
+        // call timer start, then end after lookup, add to total and count
+        temp_timer_start = sus_time_nanos();
         existing_meta = hash_tree_get_or_create(ctx->hash_tree, *out_short,
                                                 out_long, current_meta);
+        temp_timer_end = sus_time_nanos();
+        ral_total += (temp_timer_end - temp_timer_start);
+        ral_count += 1;
 
         // todo: remove unneccesary data in meta
         if (existing_meta != NULL && current_meta->page != existing_meta->page)
@@ -170,6 +184,7 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
     struct walk_ctx* ctx;
     struct merge_node *prev_node, *curr_node, *head, *tail;
     int code;
+    u64 walk_start, walk_end;
 
     task = find_task_from_pid(pid); // get task struct
     BUG_ON(IS_ERR(task));
@@ -182,8 +197,14 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
 
     pr_debug("FKSM: SCAN START");
     mmap_read_lock(task->active_mm);
-
+    // tracking walk time
+    walk_start = sus_time_nanos();
     walk_page_range(task->active_mm, 0, TASK_SIZE, &task_walk_ops, ctx);
+    walk_end = sus_time_nanos();
+
+    pr_info("FKSM_TIME: %lu walk_time %llu", pid, (walk_end - walk_start));
+    temp_timer_start = sus_time_nanos();
+
     curr_node = head->next;
     while (curr_node)
     {
@@ -219,6 +240,9 @@ static int scan(unsigned long pid, struct first_level_bucket* hash_tree)
         }
     }
     kfree(head);
+    temp_timer_end = sus_time_nanos();
+    pr_info("FKSM_TIME: %lu replace_loop %llu", pid,
+            (temp_timer_end - temp_timer_start));
 
     mmap_read_unlock(task->active_mm);
     pr_debug("FKSM: SCAN END");
@@ -236,6 +260,11 @@ int sus_mod_merge(pid_t pid1, pid_t pid2)
     merge_success = 0;
     merge_fail = 0;
 
+    rah_total = 0;
+    ral_total = 0;
+    rah_count = 0;
+    ral_count = 0;
+
     start = sus_time_nanos();
 
     pr_debug("FKSM_MAIN: scan for pid %d start", pid1);
@@ -245,8 +274,18 @@ int sus_mod_merge(pid_t pid1, pid_t pid2)
     pr_debug("FKSM_MAIN: end");
 
     end = sus_time_nanos();
-    pr_info("FKSM_TESTS: dt %llu scan %ld m_s %ld m_f %ld\n", (end-start),scanned, merge_success,
-            merge_fail);
+    pr_info("FKSM_TIMES: ,ht %llu,hc %d,lt %llu,lc %d", rah_total, rah_count,
+            ral_total, ral_count);
+    pr_info("FKSM_TESTS: ,dt %llu,scan %ld,m_s %ld\n", (end - start), scanned,
+            merge_success);
+    // ht is hash total
+    // hc is hash count
+    // lt is lookup total
+    // lc is lookup count
+    // dt is total delta time from start to end of "working" section
+    // scan is # of scans performed (valid page operations)
+    // m_s is # of successful merges
+    //(fails are saved as merge_fails but not printed since it's usually 0)
 
     hash_tree_destroy(hash_tree);
     pr_debug("FKSM_MAIN: hash_tree destroyed");
