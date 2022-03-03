@@ -12,7 +12,6 @@ for j in $(seq 1 ${2}) ; do
     touch "./tests/dt/fksm_${1}_${j}"
     touch "./tests/scan/fksm_${1}_${j}"
     touch "./tests/m_s/fksm_${1}_${j}"
-    touch "./tests/m_f/fksm_${1}_${j}"
     ./sus_mod_tester -f ${1}
     if [[ $? -ne 0 ]]; then
         echo "FAIL"

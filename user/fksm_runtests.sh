@@ -13,6 +13,8 @@ mkdir tests/all
 mkdir tests/dt
 mkdir tests/scan
 mkdir tests/m_s
+mkdir tests/hash
+mkdir tests/lookup
 mkdir res
 
 echo "PAGES: 2"
@@ -23,7 +25,7 @@ echo "PAGES: 100"
 bash fksm_bench.sh 100 10
 echo "PAGES: 1000"
 bash fksm_bench.sh 1000 10
-echo "PAGES: 5000"
+echo "PAGES: 2500"
 bash fksm_bench.sh 2500 10
 
 bash fksm_avgsum.sh 2 
