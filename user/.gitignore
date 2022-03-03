@@ -5,3 +5,4 @@ output
 ufrk_*_*
 tests
 fksm_*_*
+.cache/
