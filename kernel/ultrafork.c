@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Main implementation file for Ultrafork.
  * author: Adrian Curless <awcurless@wpi.edu>

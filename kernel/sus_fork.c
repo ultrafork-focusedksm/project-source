@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * sus_fork.c: The functions in this file make up the clone implementation for
  * Ultrafork that could be extracted from the kernel easily. Part of the

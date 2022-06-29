@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _RECURSIVE_TASK_WALKER_H
 #define _RECURSIVE_TASK_WALKER_H
 

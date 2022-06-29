@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "focused_ksm.h"
 #include "hash_tree.h"
 #include "sus.h"

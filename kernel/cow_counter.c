@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "cow_counter.h"
 #include "util.h"
 #include <linux/limits.h>

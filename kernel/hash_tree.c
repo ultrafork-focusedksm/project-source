@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "hash_tree.h"
 #include <linux/kernel.h>
 #include <linux/types.h>

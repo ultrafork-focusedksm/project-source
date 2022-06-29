@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #include "focused_ksm.h"
 #include <crypto/blake2b.h>
 #include <crypto/internal/hash.h>

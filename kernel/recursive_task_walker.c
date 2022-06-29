@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "recursive_task_walker.h"
 
 /**

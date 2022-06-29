@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _SUS_FORK_H
 #define _SUS_FORK_H
 
